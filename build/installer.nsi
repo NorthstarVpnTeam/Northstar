@@ -92,6 +92,7 @@ Function un.onUninstSuccess
 FunctionEnd
 
 Function WriteUninstaller
+  DetailPrint "Northstar V2Ray uninstaller"
 FunctionEnd
 
 ;--------------------------------
