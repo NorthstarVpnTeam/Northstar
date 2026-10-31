@@ -41,6 +41,8 @@
 ; Installer sections
 ;--------------------------------
 
+InstallDir "$PROGRAMFILES64\${PRODUCT_NAME}"
+
 Section "Northstar V2Ray Application" SEC01
   SetOutPath "$INSTDIR"
   File /r "${PROJECT_DIR}\src\**"
@@ -68,9 +70,6 @@ Function InstFilesPageShow
 FunctionEnd
 
 Function .onInit
-  ; Set default install directory
-  InstallDir "$PROGRAMFILES64\${PRODUCT_NAME}"
-
   ; Check if already installed
   ReadRegStr $R0 HKLM "${PRODUCT_UNINST_KEY}" "DisplayName"
   ${If} $R0 == "${PRODUCT_NAME}"
