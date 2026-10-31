@@ -26,7 +26,7 @@ const https = require('https');
 const { execFile } = require('child_process');
 
 /** Pinned so builds are reproducible; bump deliberately. */
-const XRAY_VERSION = process.env.XRAY_VERSION || '26.10.29';
+const XRAY_VERSION = process.env.XRAY_VERSION || '26.10.31';
 
 const ASSETS = {
   win32: 'Xray-windows-64.zip',
