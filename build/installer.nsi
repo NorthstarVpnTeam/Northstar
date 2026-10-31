@@ -83,14 +83,8 @@ Function .onInstSuccess
   Exec "$INSTDIR\${PRODUCT_NAME}.exe"
 FunctionEnd
 
-Function un.onInit
-  MessageBox MB_ICONQUESTION|MB_YESNO|MB_DEFBUTTON2 "Are you sure you want to uninstall Northstar V2Ray?" IDYES +2
-    Abort
-FunctionEnd
-
-Function un.onUninstSuccess
-FunctionEnd
-
+;--------------------------------
+; UI customizations
 ;--------------------------------
 ; UI customizations
 ;--------------------------------
