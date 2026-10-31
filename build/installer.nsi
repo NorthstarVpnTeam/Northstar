@@ -13,7 +13,7 @@
 !define MUI_ABORTWARNING
 
 !define MUI_HEADERIMAGE
-!define MUI_HEADERIMAGE_BITMAP "build/header.bmp"
+!define MUI_HEADERIMAGE_BITMAP "${PROJECT_DIR}\build\header.bmp"
 
 ;--------------------------------
 ; Pages
