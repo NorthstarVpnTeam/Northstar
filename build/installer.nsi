@@ -43,10 +43,10 @@
 
 Section "Northstar V2Ray Application" SEC01
   SetOutPath "$INSTDIR"
-  File /r "..\src\**"
-  File /r "..\scripts\**"
-  File /r "..\core\**"
-  File "..\package.json"
+  File /r "${PROJECT_DIR}\src\**"
+  File /r "${PROJECT_DIR}\scripts\**"
+  File /r "${PROJECT_DIR}\core\**"
+  File "${PROJECT_DIR}\package.json"
 SectionEnd
 
 Section "Desktop Shortcut" SEC02
