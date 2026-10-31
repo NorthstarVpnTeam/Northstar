@@ -1,4 +1,3 @@
-!define PRODUCT_NAME "Northstar V2Ray"
 !define PRODUCT_VERSION "2.0.0"
 !define PRODUCT_PUBLISHER "shupolol"
 !define PRODUCT_WEB_SITE "https://github.com/shupolol/Northstar"
