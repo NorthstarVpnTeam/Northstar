@@ -91,6 +91,9 @@ FunctionEnd
 Function un.onUninstSuccess
 FunctionEnd
 
+Function WriteUninstaller
+FunctionEnd
+
 ;--------------------------------
 ; UI customizations
 ;--------------------------------
