@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Northstar V2Ray</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Skip to content</a>
+
+    <!-- Frameless window: macOS-style traffic lights (wired in app.js) -->
+    <header class="titlebar" id="titlebar" aria-label="Window title bar">
+      <div class="traffic" role="group" aria-label="Window controls">
+        <button
+          type="button"
+          class="tl tl-close"
+          data-win="close"
+          aria-label="Close window"
+          title="Close"
+        ></button>
+        <button
+          type="button"
+          class="tl tl-minimize"
+          data-win="minimize"
+          aria-label="Minimize window"
+          title="Minimize"
+        ></button>
+        <button
+          type="button"
+          class="tl tl-maximize"
+          data-win="maximize"
+          aria-label="Maximize window"
+          title="Maximize"
+          aria-pressed="false"
+        ></button>
+      </div>
+      <div class="titlebar-title" aria-hidden="true">Northstar V2Ray</div>
+    </header>
+
+    <div class="app-shell">
+      <!-- Sidebar (desktop) -->
+      <nav class="sidebar" aria-label="Primary">
+        <div class="brand">
+          <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path
+              d="M12 2.5l2.35 6.03 6.45.36-4.92 4.05 1.6 6.26L12 16.14 6.52 19.2l1.6-6.26L3.2 8.89l6.45-.36L12 2.5z"
+              fill="currentColor"
+            />
+          </svg>
+          <span class="brand-text">
+            <strong>Northstar</strong>
+            <small>V2Ray Client</small>
+          </span>
+        </div>
+
+        <ul class="nav-list" role="list">
+          <li>
+            <button class="nav-item is-active" data-view="overview" aria-current="page">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13h6V4H4v9zm0 7h6v-5H4v5zm10 0h6v-9h-6v9zm0-16v5h6V4h-6z" fill="currentColor"/></svg>
+              <span>Overview</span>
+            </button>
+          </li>
+          <li>
+            <button class="nav-item" data-view="servers">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16v4H4V6zm0 8h16v4H4v-4z" fill="currentColor"/></svg>
+              <span>Servers</span>
+            </button>
+          </li>
+          <li>
+            <button class="nav-item" data-view="connection">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 00-9 9h3a6 6 0 116 6v3a9 9 0 000-18z" fill="currentColor"/></svg>
+              <span>Connection</span>
+            </button>
+          </li>
+          <li>
+            <button class="nav-item" data-view="settings">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8a4 4 0 100 8 4 4 0 000-8zm9 4l-2.1 1.6.4 2.5-2.4.9-1.5 2.1L12 18l-3.4 1.1-1.5-2.1-2.4-.9.4-2.5L3 12l2.1-1.6-.4-2.5 2.4-.9L8.6 4.9 12 6l3.4-1.1 1.5 2.1 2.4.9-.4 2.5L21 12z" fill="currentColor"/></svg>
+              <span>Settings</span>
+            </button>
+          </li>
+          <li>
+            <button class="nav-item" data-view="about">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z" fill="currentColor"/></svg>
+              <span>About</span>
+            </button>
+          </li>
+        </ul>
+
+        <div class="sidebar-footer">
+          <div class="mini-status" id="sidebar-status" aria-live="polite">
+            <span class="status-dot" data-state="disconnected" aria-hidden="true"></span>
+            <span class="mini-status-text">Disconnected</span>
+          </div>
+        </div>
+      </nav>
+
+      <!-- Main content -->
+      <main id="main-content" class="main" tabindex="-1">
+        <div id="view-root" class="view-root">
+          <div class="view is-active" data-view="overview" id="view-overview"></div>
+          <div class="view" data-view="servers" id="view-servers"></div>
+          <div class="view" data-view="connection" id="view-connection"></div>
+          <div class="view" data-view="settings" id="view-settings"></div>
+          <div class="view" data-view="about" id="view-about"></div>
+        </div>
+      </main>
+    </div>
+
+    <!-- Mobile bottom navigation -->
+    <nav class="bottom-nav" aria-label="Primary (compact)">
+      <button class="bottom-item is-active" data-view="overview" aria-current="page">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13h6V4H4v9zm0 7h6v-5H4v5zm10 0h6v-9h-6v9zm0-16v5h6V4h-6z" fill="currentColor"/></svg>
+        <span>Overview</span>
+      </button>
+      <button class="bottom-item" data-view="servers">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16v4H4V6zm0 8h16v4H4v-4z" fill="currentColor"/></svg>
+        <span>Servers</span>
+      </button>
+      <button class="bottom-item" data-view="connection">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 00-9 9h3a6 6 0 116 6v3a9 9 0 000-18z" fill="currentColor"/></svg>
+        <span>Connection</span>
+      </button>
+      <button class="bottom-item" data-view="settings">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8a4 4 0 100 8 4 4 0 000-8zm9 4l-2.1 1.6.4 2.5-2.4.9-1.5 2.1L12 18l-3.4 1.1-1.5-2.1-2.4-.9.4-2.5L3 12l2.1-1.6-.4-2.5 2.4-.9L8.6 4.9 12 6l3.4-1.1 1.5 2.1 2.4.9-.4 2.5L21 12z" fill="currentColor"/></svg>
+        <span>Settings</span>
+      </button>
+      <button class="bottom-item" data-view="about">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z" fill="currentColor"/></svg>
+        <span>About</span>
+      </button>
+    </nav>
+
+    <div id="toast-root" class="toast-root" aria-live="polite" aria-atomic="false"></div>
+    <div id="modal-root"></div>
+
+    <script src="app.js" type="module"></script>
+  </body>
+</html>

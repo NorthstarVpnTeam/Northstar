@@ -1,0 +1,75 @@
+{
+  "name": "northstar-v2ray",
+  "productName": "Northstar V2Ray",
+  "version": "2.0.0",
+  "description": "A polished V2Ray-compatible proxy configuration manager and client for Windows.",
+  "main": "src/main/main.js",
+  "license": "MIT",
+  "author": {
+    "name": "shupolol",
+    "email": "northstar@example.com"
+  },
+  "homepage": "https://github.com/shupolol/Northstar",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/shupolol/Northstar.git"
+  },
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test \"tests/*.test.js\"",
+    "check": "node scripts/check-syntax.js",
+    "verify": "npm run check && npm test",
+    "pack:win": "electron-builder --win --dir",
+    "fetch:core": "node scripts/fetch-core.js",
+    "verify:connect": "node scripts/verify-connection.js",
+    "dist:win": "node scripts/fetch-core.js --platform win32 && electron-builder --win --publish never"
+  },
+  "devDependencies": {
+    "electron": "45.0.0",
+    "electron-builder": "26.18.0"
+  },
+  "build": {
+    "appId": "com.northstar.v2ray",
+    "productName": "Northstar V2Ray",
+    "electronLanguages": ["en-US"],
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "scripts/system-proxy.ps1",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "core",
+        "to": "core",
+        "filter": ["**/*"]
+      }
+    ],
+    "win": {
+      "icon": "build/icon.ico",
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "target": [
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
+      ]
+    },
+    "nsis": {
+      "artifactName": "${productName}-${version}-${arch}-setup.${ext}",
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Northstar V2Ray",
+      "uninstallDisplayName": "Northstar V2Ray",
+      "deleteAppDataOnUninstall": false,
+      "script": "build/installer.nsi"
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-${arch}-portable.${ext}"
+    }
+  }
+}

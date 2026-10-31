@@ -1,0 +1,38 @@
+name: Sync lockfile
+
+# Generates package-lock.json from package.json so `npm ci` and the npm cache
+# work in CI. Manual trigger only; commits the lockfile as the repository owner.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  lockfile:
+    name: Generate package-lock.json
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Generate lockfile from package.json
+        run: npm install --package-lock-only --no-audit --no-fund
+
+      - name: Commit package-lock.json
+        run: |
+          git add package-lock.json
+          if git diff --cached --quiet; then
+            echo "package-lock.json is already up to date."
+            exit 0
+          fi
+          git config user.name "shupolol"
+          git config user.email "168026138+shupolol@users.noreply.github.com"
+          git commit -m "Add package-lock.json"
+          git push

@@ -1,0 +1,99 @@
+name: Build
+
+# Runs the full check suite, then produces the Windows distribution
+# (NSIS installer + portable executable) on windows-latest and uploads it as
+# a workflow artifact on pushes, tags and manual runs.
+
+on:
+  push:
+    branches: ['main']
+    tags: ['v*']
+  pull_request:
+    branches: ['main']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Syntax check + unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      # `cache: npm` needs a lockfile to hash; fall back to an uncached Node
+      # setup (and `npm install` below) while the repository has none.
+      - name: Set up Node.js (with npm cache)
+        if: hashFiles('package-lock.json') != ''
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Node.js (no lockfile yet)
+        if: hashFiles('package-lock.json') == ''
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund || npm install --no-audit --no-fund
+
+      - name: Syntax check every JS file
+        run: npm run check
+
+      - name: Unit tests
+        run: npm test
+
+  windows:
+    name: Windows package (NSIS + portable)
+    needs: verify
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js (with npm cache)
+        if: hashFiles('package-lock.json') != ''
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Node.js (no lockfile yet)
+        if: hashFiles('package-lock.json') == ''
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund || npm install --no-audit --no-fund
+
+      - name: Run checks and tests again on Windows
+        # Quiet reporter: keeps this job's log short enough to read the
+        # electron-builder output that follows it.
+        run: |
+          npm run check
+          node --test --test-reporter=dot "tests/*.test.js"
+
+      - name: Build installer and portable executable
+        run: npm run dist:win
+        # No code-signing certificate in this repository: tell
+        # electron-builder not to go looking for one.
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: northstar-v2ray-windows-${{ github.sha }}
+          path: |
+            dist/*.exe
+          if-no-files-found: error
+          retention-days: 30
