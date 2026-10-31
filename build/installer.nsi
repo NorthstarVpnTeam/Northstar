@@ -15,6 +15,9 @@
 !define MUI_HEADERIMAGE
 !define MUI_HEADERIMAGE_BITMAP "${PROJECT_DIR}\build\header.bmp"
 
+Function WriteUninstaller
+FunctionEnd
+
 ;--------------------------------
 ; Pages
 ;--------------------------------
