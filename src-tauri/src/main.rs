@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod commands;
+mod elevation;
 mod state;
 
 use tauri::{Emitter, Manager};
@@ -14,8 +15,28 @@ fn main() {
         .setup(|app| {
             let handle = app.handle().clone();
             let state = AppState::new(&handle);
+            let settings = state.settings.get();
             app.manage(state);
             commands::spawn_core_watch(handle.clone());
+
+            // TUN mode creates an adapter and system routes, which needs
+            // administrator rights. Ask for them before the UI is usable.
+            if settings.tun_mode && !elevation::is_elevated() {
+                match elevation::relaunch_elevated() {
+                    Ok(()) => {
+                        handle.exit(0);
+                        return Ok(());
+                    }
+                    Err(error) => {
+                        let state = handle.state::<AppState>();
+                        state.log(
+                            &handle,
+                            "warn",
+                            &format!("TUN mode needs administrator rights: {error}"),
+                        );
+                    }
+                }
+            }
 
             let setup_app = handle.clone();
             tauri::async_runtime::spawn(async move {

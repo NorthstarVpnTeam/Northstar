@@ -232,7 +232,7 @@ function protectionText(conn) {
   if (sys) {
     return 'traffic from applications that follow the Windows proxy settings, plus anything sent to 127.0.0.1 proxies, reaches the internet through the selected server. Your previous proxy settings are restored on disconnect.';
   }
-  return 'traffic explicitly configured to use 127.0.0.1 proxies reaches the internet through the selected server. Enable the system proxy or TUN mode in Settings to route more traffic.';
+  return 'traffic explicitly configured to use 127.0.0.1 proxies reaches the internet through the selected server. Enable the system proxy or TUN mode in Settings to route more traffic; TUN asks for administrator rights.';
 }
 
 /** Explains system-wide routing status for the local proxy card. */
@@ -245,7 +245,7 @@ function routingText(conn) {
   if (sys) {
     return 'partial — the Windows per-user proxy points at Northstar while connected; applications must honour the system proxy.';
   }
-  return 'not configured. Enable “System proxy” or “TUN mode” in Settings; TUN needs Northstar running as administrator, and nothing is enabled silently.';
+  return 'not configured. Enable “System proxy” or “TUN mode” in Settings; TUN asks Windows for administrator rights when enabled, and nothing is enabled silently.';
 }
 
 function codeLine(value, label, actions) {

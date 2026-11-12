@@ -264,7 +264,7 @@ export function renderSettings(container, ctx) {
       ]),
 
       el('div', { class: 'setting-row' }, [
-        info('TUN mode', 'Route all device traffic through the tunnel using a TUN interface. Creates a network interface and system routes, so Northstar must run as administrator (Windows) — it never elevates itself. Applied on connect, removed on disconnect.'),
+        info('TUN mode', 'Route all device traffic through the tunnel using a TUN interface. Windows asks for administrator rights and restarts Northstar elevated when you turn this on. Applied on connect, removed on disconnect.'),
         control([
           el('label', { class: 'switch' }, [
             el('input', {

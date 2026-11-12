@@ -51,6 +51,26 @@ async fn dispatch(
                 if let Ok(mut logger) = state.logger.lock() {
                     logger.set_verbose(settings.verbose_logging);
                 }
+                // TUN needs administrator rights: ask as soon as it is enabled.
+                if payload.get("tunMode").is_some()
+                    && settings.tun_mode
+                    && !crate::elevation::is_elevated()
+                {
+                    match crate::elevation::relaunch_elevated() {
+                        Ok(()) => {
+                            let handle = app.clone();
+                            tauri::async_runtime::spawn(async move {
+                                tokio::time::sleep(std::time::Duration::from_millis(700)).await;
+                                handle.exit(0);
+                            });
+                        }
+                        Err(error) => state.log(
+                            &app,
+                            "warn",
+                            &format!("TUN mode needs administrator rights: {error}"),
+                        ),
+                    }
+                }
                 // The system proxy follows its toggle immediately while
                 // connected; the other connection settings need a reconnect.
                 if payload.get("systemProxy").is_some() {
@@ -175,6 +195,28 @@ async fn dispatch(
         "connection:connect" => {
             let id = text(&payload, "serverId").unwrap_or_default();
             let settings = state.settings.get();
+
+            if settings.tun_mode && !crate::elevation::is_elevated() {
+                let message = match crate::elevation::relaunch_elevated() {
+                    Ok(()) => {
+                        let handle = app.clone();
+                        tauri::async_runtime::spawn(async move {
+                            tokio::time::sleep(std::time::Duration::from_millis(700)).await;
+                            handle.exit(0);
+                        });
+                        "Northstar is restarting with administrator rights. Approve the Windows prompt, then connect again."
+                    }
+                    Err(error) => {
+                        state.log(
+                            &app,
+                            "warn",
+                            &format!("TUN mode needs administrator rights: {error}"),
+                        );
+                        "TUN mode needs administrator rights. Restart Northstar and approve the Windows prompt."
+                    }
+                };
+                return json!({ "ok": false, "code": "admin-required", "error": message });
+            }
 
             let core = state
                 .core

@@ -133,7 +133,7 @@ export function renderOverview(container, ctx) {
                     .concat(modeLabel(conn) || [])
                     .join(' · ')
                 : settings.tunMode
-                  ? 'TUN mode on connect — requires administrator; Northstar never elevates itself'
+                  ? 'TUN mode on connect — Windows asks for administrator rights'
                   : settings.systemProxy
                     ? `System proxy on connect: Windows apps → 127.0.0.1:${settings.httpPort || 10809}`
                     : 'Local proxy mode — no system-wide routing is changed',
