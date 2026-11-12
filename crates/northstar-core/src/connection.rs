@@ -6,11 +6,14 @@
 //! reported as unavailable: this build samples no core statistics, and inventing
 //! them would break the app's honesty rules.
 
+use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::{json, Value};
+use tokio::io::AsyncRead;
 use tokio::net::TcpStream;
 use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
@@ -70,6 +73,52 @@ impl std::fmt::Display for ConnectError {
 }
 
 impl std::error::Error for ConnectError {}
+
+/// True when nothing is listening on the local port and the core can bind it.
+fn port_available(port: u16) -> bool {
+    std::net::TcpListener::bind(("127.0.0.1", port)).is_ok()
+}
+
+/// Keeps the last lines the core printed so a startup failure can name its
+/// actual reason instead of only reporting a listener timeout.
+fn drain_diagnostics<R>(reader: R, buffer: Arc<Mutex<VecDeque<String>>>)
+where
+    R: AsyncRead + Unpin + Send + 'static,
+{
+    tokio::spawn(async move {
+        use tokio::io::{AsyncBufReadExt, BufReader};
+        let mut lines = BufReader::new(reader).lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            let mut buffer = buffer.lock().await;
+            if buffer.len() >= 40 {
+                buffer.pop_front();
+            }
+            buffer.push_back(line.to_string());
+        }
+    });
+}
+
+async fn diagnostic_tail(buffer: &Mutex<VecDeque<String>>, secrets: &[String]) -> String {
+    let buffer = buffer.lock().await;
+    let text = buffer
+        .iter()
+        .rev()
+        .take(4)
+        .rev()
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(" | ");
+    let redacted = crate::core_config::redact(&text, secrets);
+    if redacted.chars().count() > 700 {
+        format!("{}…", redacted.chars().take(700).collect::<String>())
+    } else {
+        redacted
+    }
+}
 
 struct Inner {
     state: String,
@@ -158,6 +207,15 @@ impl ConnectionManager {
 
     pub async fn events(&self) -> Vec<Value> {
         self.inner.lock().await.events.clone()
+    }
+
+    /// Reports the exit status once the running core has died.
+    pub async fn core_exited(&self) -> Option<std::process::ExitStatus> {
+        let mut child = self.child.lock().await;
+        child
+            .as_mut()
+            .and_then(|child| child.try_wait().ok())
+            .flatten()
     }
 
     async fn push_event(&self, kind: &str, message: impl Into<String>) {
@@ -250,6 +308,18 @@ impl ConnectionManager {
             .await;
         emit(self.status(core.clone()).await);
 
+        // Fail with a clear message before spawning anything if another
+        // program (or a stale Northstar) already owns a local port.
+        for (name, port) in [("SOCKS", options.socks_port), ("HTTP", options.http_port)] {
+            if !port_available(port) {
+                let message =
+                    format!("Local {name} port {port} is already in use. Change it in Settings.");
+                self.set_error(message.clone()).await;
+                emit(self.status(core).await);
+                return Err(ConnectError::new(message, "port-conflict"));
+            }
+        }
+
         let config = match build_core_config(
             entry,
             &CoreConfigOptions {
@@ -290,12 +360,21 @@ impl ConnectionManager {
             return Err(ConnectError::new(message, "config-write"));
         }
 
+        let diagnostics = Arc::new(Mutex::new(VecDeque::<String>::new()));
         let mut command = Command::new(core_path);
         command
+            .arg("run")
             .arg("-c")
             .arg(&path)
-            .stdout(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
+        // The core loads geoip.dat/geosite.dat from its own directory and from
+        // this variable; set both so an installed build never depends on the
+        // directory the app happened to start in.
+        if let Some(dir) = core_path.parent() {
+            command.current_dir(dir);
+            command.env("XRAY_LOCATION_ASSET", dir);
+        }
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
@@ -312,18 +391,27 @@ impl ConnectionManager {
                 return Err(ConnectError::new(message, "core-start"));
             }
         };
-        // Drain stderr so a chatty core can never fill the pipe and deadlock.
+        // Keep the core's own output so a startup failure can say why it died,
+        // and keep draining both pipes so a chatty core can never deadlock.
+        if let Some(stdout) = child.stdout.take() {
+            drain_diagnostics(stdout, Arc::clone(&diagnostics));
+        }
         if let Some(stderr) = child.stderr.take() {
-            tokio::spawn(async move {
-                use tokio::io::{AsyncBufReadExt, BufReader};
-                let mut lines = BufReader::new(stderr).lines();
-                while let Ok(Some(_)) = lines.next_line().await {}
-            });
+            drain_diagnostics(stderr, Arc::clone(&diagnostics));
         }
         *self.child.lock().await = Some(child);
         *self.config_path.lock().await = Some(path);
 
-        if let Err(error) = wait_for_listener(options.socks_port, LISTENER_TIMEOUT_MS).await {
+        let secrets = crate::core_config::collect_secrets(Some(entry));
+        if let Err(error) = self
+            .wait_for_listener(
+                options.socks_port,
+                LISTENER_TIMEOUT_MS,
+                &diagnostics,
+                &secrets,
+            )
+            .await
+        {
             self.kill_core().await;
             let message = format!(
                 "The proxy core did not open its local listener: {}",
@@ -331,7 +419,7 @@ impl ConnectionManager {
             );
             self.set_error(message.clone()).await;
             emit(self.status(core).await);
-            return Err(ConnectError::new(message, "listener-timeout"));
+            return Err(ConnectError::new(message, error.code));
         }
 
         let validation = if options.validate {
@@ -398,6 +486,59 @@ impl ConnectionManager {
         Ok(())
     }
 
+    /// Waits for the SOCKS listener, failing fast when the core exits first.
+    async fn wait_for_listener(
+        &self,
+        port: u16,
+        timeout_ms: u64,
+        diagnostics: &Mutex<VecDeque<String>>,
+        secrets: &[String],
+    ) -> Result<(), ConnectError> {
+        let deadline = tokio::time::Instant::now() + Duration::from_millis(timeout_ms);
+        loop {
+            if TcpStream::connect(("127.0.0.1", port)).await.is_ok() {
+                return Ok(());
+            }
+
+            let exited = {
+                let mut child = self.child.lock().await;
+                child
+                    .as_mut()
+                    .and_then(|child| child.try_wait().ok())
+                    .flatten()
+            };
+            if let Some(status) = exited {
+                // Give the pipe readers a moment to deliver the final lines.
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                let detail = diagnostic_tail(diagnostics, secrets).await;
+                let code = status
+                    .code()
+                    .map(|code| code.to_string())
+                    .unwrap_or_else(|| "unknown".into());
+                let base =
+                    format!("The proxy core exited before opening 127.0.0.1:{port} (exit {code}).");
+                let message = if detail.is_empty() {
+                    base
+                } else {
+                    format!("{base} {detail}")
+                };
+                return Err(ConnectError::new(message, "core-exited"));
+            }
+
+            if tokio::time::Instant::now() >= deadline {
+                let detail = diagnostic_tail(diagnostics, secrets).await;
+                let base = format!("timed out waiting for 127.0.0.1:{port}");
+                let message = if detail.is_empty() {
+                    base
+                } else {
+                    format!("{base} ({detail})")
+                };
+                return Err(ConnectError::new(message, "listener-timeout"));
+            }
+            tokio::time::sleep(Duration::from_millis(120)).await;
+        }
+    }
+
     async fn kill_core(&self) {
         if let Some(mut child) = self.child.lock().await.take() {
             let _ = child.start_kill();
@@ -440,27 +581,6 @@ impl ConnectionManager {
     }
 }
 
-async fn wait_for_listener(port: u16, timeout_ms: u64) -> Result<(), ConnectError> {
-    let deadline = tokio::time::Instant::now() + Duration::from_millis(timeout_ms);
-    loop {
-        match TcpStream::connect(("127.0.0.1", port)).await {
-            Ok(stream) => {
-                drop(stream);
-                return Ok(());
-            }
-            Err(_) if tokio::time::Instant::now() < deadline => {
-                tokio::time::sleep(Duration::from_millis(120)).await;
-            }
-            Err(_) => {
-                return Err(ConnectError::new(
-                    format!("timed out waiting for 127.0.0.1:{port}"),
-                    "listener-timeout",
-                ))
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -491,6 +611,75 @@ mod tests {
             .unwrap_err();
         assert_eq!(error.code, "core-missing");
         assert_eq!(manager.status(json!({})).await["state"], "error");
+    }
+
+    fn free_port() -> u16 {
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        listener.local_addr().unwrap().port()
+    }
+
+    #[tokio::test]
+    async fn busy_local_port_fails_before_spawning() {
+        let dir = tempfile::tempdir().unwrap();
+        let core = dir.path().join("xray");
+        std::fs::write(&core, b"not a core").unwrap();
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let taken = listener.local_addr().unwrap().port();
+        let entry = crate::parser::parse_config("trojan://pw@1.2.3.4:443#Test").unwrap();
+        let error = ConnectionManager::new()
+            .connect(
+                &entry,
+                &ConnectOptions {
+                    socks_port: taken,
+                    http_port: free_port(),
+                    validate: false,
+                    ..ConnectOptions::default()
+                },
+                &core,
+                json!({}),
+                |_| {},
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, "port-conflict");
+        assert!(error.message.contains("already in use"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn core_exit_reports_its_own_error() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let core = dir.path().join("fake-core");
+        std::fs::write(
+            &core,
+            "#!/bin/sh\necho 'boom: invalid config' >&2\nexit 1\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&core, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let entry = crate::parser::parse_config("trojan://pw@1.2.3.4:443#Test").unwrap();
+        let error = ConnectionManager::new()
+            .connect(
+                &entry,
+                &ConnectOptions {
+                    socks_port: free_port(),
+                    http_port: free_port(),
+                    validate: false,
+                    ..ConnectOptions::default()
+                },
+                &core,
+                json!({}),
+                |_| {},
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, "core-exited");
+        assert!(
+            error.message.contains("boom: invalid config"),
+            "{} was hidden",
+            error.message
+        );
     }
 
     #[tokio::test]

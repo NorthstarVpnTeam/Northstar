@@ -15,6 +15,7 @@ fn main() {
             let handle = app.handle().clone();
             let state = AppState::new(&handle);
             app.manage(state);
+            commands::spawn_core_watch(handle.clone());
 
             let setup_app = handle.clone();
             tauri::async_runtime::spawn(async move {
@@ -42,6 +43,10 @@ fn main() {
                             }
                         }
                         Err(error) => {
+                            state
+                                .connection
+                                .mark_system_proxy(false, Some(error.message.clone()))
+                                .await;
                             state.log(
                                 &setup_app,
                                 "warn",
@@ -69,6 +74,10 @@ fn main() {
                 // `servers:changed` events can never be emitted before the UI
                 // has subscribed to them.
                 state.wait_ui_ready().await;
+                // Now that the renderer is listening, surface any startup
+                // system-proxy failure instead of leaving it only in the log.
+                let status = state.connection.status(state.core_json()).await;
+                let _ = setup_app.emit("connection:status", status);
                 let _ = commands::refresh_configs(&setup_app, state.inner()).await;
             });
             Ok(())

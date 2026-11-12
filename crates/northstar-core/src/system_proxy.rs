@@ -15,7 +15,10 @@
 //! leave Windows pointing at a dead local port forever: the next launch
 //! restores it before doing anything else.
 
+use std::future::Future;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
+use std::sync::Arc;
 #[cfg(windows)]
 use std::time::Duration;
 
@@ -23,8 +26,21 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 const SCRIPT_SOURCE: &str = include_str!("../../../scripts/system-proxy.ps1");
+#[cfg_attr(not(windows), allow(dead_code))]
 const HELPER_TIMEOUT_MS: u64 = 15_000;
 const STATE_FILE: &str = "system-proxy-state.json";
+
+type HelperFuture = Pin<Box<dyn Future<Output = Result<Value, ProxyError>> + Send>>;
+
+/// Runs the PowerShell helper with an action and a JSON stdin payload.
+/// Injectable so the capture/apply/restore flow can be tested without Windows.
+type HelperRunner = Arc<dyn Fn(PathBuf, String, String) -> HelperFuture + Send + Sync>;
+
+fn process_runner() -> HelperRunner {
+    Arc::new(|script, action, input| {
+        Box::pin(async move { run_helper(&script, &action, &input).await })
+    })
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -87,10 +103,15 @@ pub struct SystemProxy {
     applied: Option<Applied>,
     persisted: Option<Persisted>,
     last_error: Option<String>,
+    runner: HelperRunner,
 }
 
 impl SystemProxy {
     pub fn new(dir: PathBuf) -> Self {
+        Self::with_runner(dir, cfg!(windows), process_runner())
+    }
+
+    fn with_runner(dir: PathBuf, supported: bool, runner: HelperRunner) -> Self {
         let persisted = std::fs::read_to_string(dir.join(STATE_FILE))
             .ok()
             .and_then(|text| serde_json::from_str::<Persisted>(&text).ok());
@@ -100,14 +121,29 @@ impl SystemProxy {
         });
         let snapshot = persisted.as_ref().map(|state| state.snapshot.clone());
         Self {
-            supported: cfg!(windows),
+            supported,
             dir,
             script_path: None,
             snapshot,
             applied,
             persisted,
             last_error: None,
+            runner,
         }
+    }
+
+    #[cfg(test)]
+    fn for_tests(dir: PathBuf, runner: HelperRunner) -> Self {
+        Self::with_runner(dir, true, runner)
+    }
+
+    async fn call_helper(
+        &self,
+        script: &Path,
+        action: &str,
+        input: &str,
+    ) -> Result<Value, ProxyError> {
+        (self.runner)(script.to_path_buf(), action.to_string(), input.to_string()).await
     }
 
     pub fn status(&self) -> ProxyStatus {
@@ -188,7 +224,7 @@ impl SystemProxy {
         }
 
         let script = self.ensure_script().await?;
-        let captured = run_helper(&script, "capture", "").await?;
+        let captured = self.call_helper(&script, "capture", "").await?;
         let snapshot = captured.get("snapshot").cloned().ok_or_else(|| {
             ProxyError::new(
                 "helper-failed",
@@ -196,7 +232,9 @@ impl SystemProxy {
             )
         })?;
 
-        let response = run_helper(&script, "apply", &json!({ "port": port }).to_string()).await?;
+        let response = self
+            .call_helper(&script, "apply", &json!({ "port": port }).to_string())
+            .await?;
         let proxy_server = response
             .get("proxyServer")
             .and_then(Value::as_str)
@@ -260,7 +298,7 @@ impl SystemProxy {
         })
         .to_string();
 
-        match run_helper(&script, "restore", &input).await {
+        match self.call_helper(&script, "restore", &input).await {
             Ok(response) => {
                 self.applied = None;
                 self.snapshot = None;
@@ -356,6 +394,7 @@ async fn run_helper(script: &Path, action: &str, input: &str) -> Result<Value, P
 
 /// Parses the single JSON object the PowerShell helper prints. A UTF-8 BOM and
 /// surrounding noise (PowerShell startup messages) are tolerated.
+#[cfg_attr(not(windows), allow(dead_code))]
 fn parse_output(stdout: &str, stderr: &str, success: bool) -> Result<Value, ProxyError> {
     let text = stdout.trim_start_matches('\u{feff}').trim();
     let parsed = serde_json::from_str::<Value>(text).ok().or_else(|| {
@@ -440,5 +479,114 @@ mod tests {
         let mut proxy = SystemProxy::new(dir.path().to_path_buf());
         let error = proxy.apply(10_809).await.unwrap_err();
         assert_eq!(error.code, "unsupported-platform");
+    }
+
+    fn persist_applied(dir: &Path) {
+        let state = Persisted {
+            snapshot: json!({ "flags": 1, "proxyServer": "corp:8080" }),
+            applied_proxy_server: "127.0.0.1:10809".into(),
+            applied_proxy_bypass: "<local>".into(),
+        };
+        std::fs::write(dir.join(STATE_FILE), serde_json::to_string(&state).unwrap()).unwrap();
+    }
+
+    #[tokio::test]
+    async fn apply_captures_then_applies_and_persists() {
+        let dir = tempfile::tempdir().unwrap();
+        let calls = Arc::new(std::sync::Mutex::new(Vec::<(String, String)>::new()));
+        let recorder = calls.clone();
+        let runner: HelperRunner = Arc::new(move |_script, action: String, input: String| {
+            recorder.lock().unwrap().push((action.clone(), input));
+            let response = match action.as_str() {
+                "capture" => {
+                    json!({ "ok": true, "snapshot": { "flags": 3, "proxyServer": "corp:8080" } })
+                }
+                "apply" => json!({
+                    "ok": true,
+                    "proxyServer": "127.0.0.1:10809",
+                    "proxyBypass": "<local>"
+                }),
+                other => panic!("unexpected helper action: {other}"),
+            };
+            Box::pin(async move { Ok(response) }) as HelperFuture
+        });
+
+        let mut proxy = SystemProxy::for_tests(dir.path().to_path_buf(), runner);
+        let applied = proxy.apply(10_809).await.unwrap();
+        assert_eq!(applied, "127.0.0.1:10809");
+
+        let calls = calls.lock().unwrap();
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0].0, "capture");
+        assert_eq!(calls[1].0, "apply");
+        let apply_input: Value = serde_json::from_str(&calls[1].1).unwrap();
+        assert_eq!(apply_input["port"], 10_809);
+        drop(calls);
+
+        assert!(proxy.status().active);
+        assert_eq!(
+            proxy.status().proxy_server.as_deref(),
+            Some("127.0.0.1:10809")
+        );
+        let saved: Persisted =
+            serde_json::from_str(&std::fs::read_to_string(dir.path().join(STATE_FILE)).unwrap())
+                .unwrap();
+        assert_eq!(saved.snapshot["proxyServer"], "corp:8080");
+        assert_eq!(saved.applied_proxy_server, "127.0.0.1:10809");
+        assert_eq!(saved.applied_proxy_bypass, "<local>");
+    }
+
+    #[tokio::test]
+    async fn restore_sends_snapshot_and_clears_state() {
+        let dir = tempfile::tempdir().unwrap();
+        persist_applied(dir.path());
+        let inputs = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let recorder = inputs.clone();
+        let runner: HelperRunner = Arc::new(move |_script, action: String, input: String| {
+            recorder.lock().unwrap().push(input);
+            assert_eq!(action, "restore");
+            Box::pin(async { Ok(json!({ "ok": true, "restored": true })) }) as HelperFuture
+        });
+
+        let mut proxy = SystemProxy::for_tests(dir.path().to_path_buf(), runner);
+        assert!(
+            proxy.status().active,
+            "persisted state should load as active"
+        );
+        let result = proxy.restore().await.unwrap();
+        assert!(result.restored);
+        assert_eq!(result.reason, None);
+        assert!(!proxy.status().active);
+        assert!(!dir.path().join(STATE_FILE).exists());
+
+        let inputs = inputs.lock().unwrap();
+        let restore_input: Value = serde_json::from_str(&inputs[0]).unwrap();
+        assert_eq!(restore_input["appliedProxyServer"], "127.0.0.1:10809");
+        assert_eq!(restore_input["appliedProxyBypass"], "<local>");
+        assert_eq!(restore_input["snapshot"]["proxyServer"], "corp:8080");
+    }
+
+    #[tokio::test]
+    async fn restore_skips_when_proxy_changed_externally() {
+        let dir = tempfile::tempdir().unwrap();
+        persist_applied(dir.path());
+        let runner: HelperRunner = Arc::new(|_script, _action, _input| {
+            Box::pin(async {
+                Ok(json!({
+                    "ok": true,
+                    "restored": false,
+                    "reason": "changed-by-another-program"
+                }))
+            }) as HelperFuture
+        });
+
+        let mut proxy = SystemProxy::for_tests(dir.path().to_path_buf(), runner);
+        let result = proxy.restore().await.unwrap();
+        assert!(!result.restored);
+        assert_eq!(result.reason.as_deref(), Some("changed-by-another-program"));
+        assert_eq!(result.error, None);
+        assert!(!proxy.status().active);
+        assert_eq!(proxy.status().error, None);
+        assert!(!dir.path().join(STATE_FILE).exists());
     }
 }

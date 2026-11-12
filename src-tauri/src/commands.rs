@@ -239,6 +239,11 @@ async fn dispatch(
                     json!({ "ok": true })
                 }
                 Err(error) => {
+                    // A previous session or attempt may have left Windows
+                    // pointing at a port the failed core never opened.
+                    restore_system_proxy(&app, state.inner()).await;
+                    let status = state.connection.status(state.core_json()).await;
+                    let _ = app.emit("connection:status", status);
                     state.log(
                         &app,
                         "error",
@@ -570,6 +575,19 @@ async fn apply_system_proxy(app: &AppHandle, state: &AppState, settings: &Settin
         );
         return;
     }
+    // Never point Windows at a proxy that is not actually accepting traffic.
+    let local = std::net::SocketAddr::from(([127, 0, 0, 1], settings.http_port));
+    if std::net::TcpStream::connect_timeout(&local, std::time::Duration::from_millis(800)).is_err()
+    {
+        let message =
+            "The local HTTP proxy is not accepting connections; the system proxy was left unchanged.";
+        state
+            .connection
+            .mark_system_proxy(false, Some(message.into()))
+            .await;
+        state.log(app, "warn", message);
+        return;
+    }
     let result = {
         state
             .system_proxy
@@ -626,6 +644,38 @@ async fn restore_system_proxy(app: &AppHandle, state: &AppState) {
             &format!("Could not restore the system proxy: {}", error.message),
         ),
     }
+}
+
+/// Watches a connected core and tears the session down if it dies, restoring
+/// the system proxy first so Windows never points at a closed local port.
+pub(crate) fn spawn_core_watch(app: AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            let state = app.state::<AppState>();
+            let status = state.connection.status(state.core_json()).await;
+            if status["state"] != "connected" {
+                continue;
+            }
+            if state.connection.core_exited().await.is_none() {
+                continue;
+            }
+            restore_system_proxy(&app, state.inner()).await;
+            let core_json = state.core_json();
+            let emit_app = app.clone();
+            state
+                .connection
+                .disconnect(core_json, |status| {
+                    let _ = emit_app.emit("connection:status", status);
+                })
+                .await;
+            state.log(
+                &app,
+                "error",
+                "The proxy core exited unexpectedly; the tunnel was closed and the system proxy restored.",
+            );
+        }
+    });
 }
 
 async fn emit_latest_event(app: &AppHandle, connection: &ConnectionManager) {

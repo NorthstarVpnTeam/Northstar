@@ -59,7 +59,13 @@ fn valid_port(port: u16) -> bool {
 }
 
 fn build_stream_settings(entry: &ServerEntry) -> Result<Value, ConfigError> {
-    let network = entry.network.to_lowercase();
+    let requested_network = entry.network.to_lowercase();
+    // Xray 26 renamed the plain TCP transport to "raw"; both names work.
+    let network = if requested_network == "raw" {
+        "tcp".to_string()
+    } else {
+        requested_network
+    };
     let security = entry.security.to_lowercase();
 
     if !["tcp", "ws", "grpc", "http", "h2", "xhttp", "kcp", "quic"].contains(&network.as_str()) {
@@ -408,14 +414,30 @@ pub fn build_core_config(
         }));
     }
 
-    let mut outbounds = vec![
+    let outbounds = vec![
         outbound,
         json!({ "protocol": "freedom", "tag": "direct", "settings": {} }),
         json!({ "protocol": "blackhole", "tag": "blocked", "settings": {} }),
     ];
 
+    // Explicit private ranges instead of `geoip:private`: the core then never
+    // needs geoip.dat to start, which removes a common installation failure.
     let mut rules = vec![
-        json!({ "type": "field", "ip": ["geoip:private"], "outboundTag": "direct" }),
+        json!({
+            "type": "field",
+            "ip": [
+                "10.0.0.0/8",
+                "172.16.0.0/12",
+                "192.168.0.0/16",
+                "127.0.0.0/8",
+                "169.254.0.0/16",
+                "100.64.0.0/10",
+                "::1/128",
+                "fc00::/7",
+                "fe80::/10"
+            ],
+            "outboundTag": "direct"
+        }),
         json!({ "type": "field", "protocol": ["bittorrent"], "outboundTag": "blocked" }),
     ];
     if options.tun {
@@ -583,6 +605,29 @@ mod tests {
             .unwrap()
             .iter()
             .any(|rule| rule["inboundTag"][0] == "tun-in"));
+    }
+
+    #[test]
+    fn plain_tcp_and_raw_are_the_same_transport() {
+        let raw = entry("trojan://pw@1.2.3.4:443?type=raw#X");
+        let non = entry("trojan://pw@1.2.3.4:443?type=tcp#X");
+        let raw_config = build_core_config(&raw, &CoreConfigOptions::default()).unwrap();
+        let non_config = build_core_config(&non, &CoreConfigOptions::default()).unwrap();
+        assert_eq!(
+            raw_config["outbounds"][0]["streamSettings"]["network"],
+            "tcp"
+        );
+        assert_eq!(raw_config, non_config);
+    }
+
+    #[test]
+    fn routing_needs_no_geo_data_files() {
+        let server = entry("trojan://pw@1.2.3.4:443#X");
+        let config = build_core_config(&server, &CoreConfigOptions::default()).unwrap();
+        let text = config.to_string();
+        assert!(!text.contains("geoip:"), "{text}");
+        assert!(!text.contains("geosite:"), "{text}");
+        assert!(text.contains("192.168.0.0/16"));
     }
 
     #[test]
