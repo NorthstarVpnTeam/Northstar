@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'; form-action 'none'"
     />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Northstar V2Ray</title>
@@ -14,7 +14,7 @@
     <a class="skip-link" href="#main-content">Skip to content</a>
 
     <!-- Frameless window: macOS-style traffic lights (wired in app.js) -->
-    <header class="titlebar" id="titlebar" aria-label="Window title bar">
+    <header class="titlebar" id="titlebar" aria-label="Window title bar" data-tauri-drag-region>
       <div class="traffic" role="group" aria-label="Window controls">
         <button
           type="button"
@@ -39,7 +39,7 @@
           aria-pressed="false"
         ></button>
       </div>
-      <div class="titlebar-title" aria-hidden="true">Northstar V2Ray</div>
+      <div class="titlebar-title" aria-hidden="true" data-tauri-drag-region>Northstar V2Ray</div>
     </header>
 
     <div class="app-shell">

@@ -3,14 +3,14 @@
  * notes and the honest limitations disclaimer.
  */
 
-import { el, kvList } from '../ui.js';
+import { el, kvList, mount } from '../ui.js';
 
 export function renderAbout(container, ctx) {
   const { state, actions } = ctx;
   const info = state.appInfo || {};
   const core = state.core;
 
-  container.replaceChildren(
+  mount(container, 
     el('div', { class: 'page-head' }, [
       el('div', {}, [
         el('h1', { text: 'About' }),
@@ -42,9 +42,8 @@ export function renderAbout(container, ctx) {
       ]),
       kvList([
         ['Version', info.version || '—'],
-        ['Electron', info.electron || '—'],
-        ['Chromium', info.chrome || '—'],
-        ['Node.js', info.node || '—'],
+        ['Engine', 'Rust (northstar-core)'],
+        ['Interface', 'Tauri + WebView2'],
         ['Platform', info.platform ? `${info.platform} (${info.arch})` : '—'],
         ['Locale', info.locale || '—'],
         ['Proxy core', core && core.coreVersion ? core.coreVersion : 'not installed'],
@@ -64,8 +63,8 @@ export function renderAbout(container, ctx) {
         el('h2', { text: 'Third-party components' }),
         kvList([
           ['Xray-core', 'MPL-2.0 — bundled with the app (fetched from the official Xray-core releases at build time)'],
-          ['Electron', 'MIT license'],
-          ['electron-builder', 'MIT license'],
+          ['Tauri', 'MIT / Apache-2.0 license'],
+          ['WebView2', 'Microsoft Edge WebView2 runtime (included with Windows)'],
           ['Configuration list', 'public third-party data — see its repository for terms'],
         ]),
       ]),

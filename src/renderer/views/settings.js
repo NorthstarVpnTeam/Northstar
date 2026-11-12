@@ -6,6 +6,7 @@
 
 import {
   el,
+  mount,
   confirmDialog,
   openModal,
   stateBlock,
@@ -17,7 +18,7 @@ export function renderSettings(container, ctx) {
   const s = state.settings || {};
   const core = state.core;
 
-  container.replaceChildren(
+  mount(container, 
     el('div', { class: 'page-head' }, [
       el('div', {}, [
         el('h1', { text: 'Settings' }),

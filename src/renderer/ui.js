@@ -32,6 +32,85 @@ function appendChildren(node, children) {
   }
 }
 
+/**
+ * Country flag as a local SVG image. Emoji flags are not rendered by Windows
+ * fonts (they appear as two letter boxes), so the bundled SVGs are used and the
+ * emoji is only a fallback when an image is unavailable.
+ *
+ * @param {string|null} code ISO 3166-1 alpha-2 code
+ * @param {string} [fallback] emoji or short text shown if the image fails
+ * @param {string} [className] extra class on the wrapper
+ */
+export function flagIcon(code, fallback = '', className = '') {
+  const upper = typeof code === 'string' ? code.trim().toUpperCase() : '';
+  const wrap = el('span', {
+    class: `flag-icon ${className}`.trim(),
+    'aria-hidden': 'true',
+  });
+
+  if (/^[A-Z]{2}$/.test(upper)) {
+    const img = el('img', {
+      src: `assets/flags/${upper.toLowerCase()}.svg`,
+      alt: '',
+      loading: 'lazy',
+      decoding: 'async',
+      draggable: 'false',
+    });
+    img.addEventListener('error', () => {
+      img.remove();
+      if (fallback) wrap.textContent = fallback;
+      else wrap.classList.add('is-fallback');
+    });
+    wrap.appendChild(img);
+  } else if (fallback) {
+    wrap.textContent = fallback;
+  } else {
+    wrap.classList.add('is-fallback');
+  }
+  return wrap;
+}
+
+/**
+ * Inline SVG icon from a path.
+ * @param {string} d SVG path data
+ * @param {{size?:number, stroke?:boolean, strokeWidth?:number}} [options]
+ */
+export function icon(d, options = {}) {
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('focusable', 'false');
+  const size = options.size || 16;
+  svg.setAttribute('width', String(size));
+  svg.setAttribute('height', String(size));
+  const path = document.createElementNS(NS, 'path');
+  path.setAttribute('d', d);
+  if (options.stroke) {
+    path.setAttribute('fill', 'none');
+    path.setAttribute('stroke', 'currentColor');
+    path.setAttribute('stroke-width', String(options.strokeWidth || 1.9));
+    path.setAttribute('stroke-linecap', 'round');
+    path.setAttribute('stroke-linejoin', 'round');
+  } else {
+    path.setAttribute('fill', 'currentColor');
+  }
+  svg.appendChild(path);
+  return svg;
+}
+
+/**
+ * Replaces a container's children, ignoring conditionally-empty slots.
+ * `Element.replaceChildren(null)` turns null into a literal "null" text node,
+ * so views must mount through this helper instead.
+ */
+export function mount(node, ...children) {
+  node.replaceChildren(
+    ...children.flat(Infinity).filter((child) => child !== null && child !== undefined && child !== false)
+  );
+  return node;
+}
+
 export function clear(node) {
   while (node.firstChild) node.removeChild(node.firstChild);
 }

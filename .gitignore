@@ -34,3 +34,9 @@ Thumbs.db
 *.swp
 
 # Local verification scratch (extracted libraries + Electron smoke harness)
+/target
+/src-tauri/target
+/src-tauri/gen
+
+# Local visual-verification screenshots (not shipped)
+/artifacts/

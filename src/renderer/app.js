@@ -8,6 +8,7 @@
  *   - list reordering is deferred while the user interacts with it
  */
 
+import './tauri-bridge.js';
 import { toast, openModal } from './ui.js';
 import { renderOverview } from './views/overview.js';
 import { renderServers, resetServersUi, getFilters } from './views/servers.js';
@@ -599,12 +600,9 @@ async function init() {
 
   navigate('overview');
 
-  // Auto-refresh on startup is handled by the main process; surface progress.
-  if (state.servers.meta && state.servers.meta.stats && state.servers.meta.stats.kept > 0) {
-    // Cached list already visible; background refresh will update it.
-  } else if (!state.fetching) {
-    actions.refreshConfigs();
-  }
+  // The Rust shell refreshes the server list in the background at launch (as
+  // the Electron main process did). It emits `config:progress` and
+  // `servers:changed`, so the renderer must not start a second fetch here.
 
   // Periodic uptime pill refresh while connected.
   setInterval(() => {

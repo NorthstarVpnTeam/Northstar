@@ -8,6 +8,7 @@
 
 import {
   el,
+  mount,
   fmtLatency,
   fmtRelative,
   protocolBadge,
@@ -15,7 +16,19 @@ import {
   toast,
   openModal,
   kvList,
+  flagIcon,
+  icon,
 } from '../ui.js';
+
+const ICONS = {
+  search: 'M10 4a6 6 0 104.9 9.5l4.3 4.3 1.4-1.4-4.3-4.3A6 6 0 0010 4zm0 2a4 4 0 110 8 4 4 0 010-8z',
+  bolt: 'M13.2 2 4 13.6h5.6L10.4 22 20 10.4h-5.6L13.2 2z',
+  check: 'M9.6 17.2 4.4 12l-1.5 1.5 6.7 6.7 12-12-1.5-1.5-10.5 10.5z',
+  info: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z',
+  copy: 'M16 1H4a2 2 0 0 0-2 2v14h2V3h12V1zm3 4H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zm0 16H8V7h11v14z',
+  chevron: 'M9 6l6 6-6 6',
+  target: 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zm9 3h-2.1a7 7 0 0 0-5.9-5.9V3h-2v2.1A7 7 0 0 0 5.1 11H3v2h2.1a7 7 0 0 0 5.9 5.9V21h2v-2.1a7 7 0 0 0 5.9-5.9H21v-2z',
+};
 
 // View-local UI state that must survive re-renders.
 const ui = {
@@ -56,23 +69,27 @@ export function renderServers(container, ctx) {
 
   const groups = servers.groups || [];
   const totalVisible = groups.reduce((sum, g) => sum + g.count, 0);
-  const hasAny = (meta && meta.stats && meta.stats.kept > 0) || totalVisible > 0;
+  const totalMeasured = groups.reduce((sum, g) => sum + (g.measured || 0), 0);
+  const totalServers = meta && meta.stats ? meta.stats.kept : totalVisible;
+  const hasAny = totalServers > 0 || totalVisible > 0;
+  const allOpen = groups.length > 0 && groups.every((g) => ui.expanded.has(g.name));
 
-  container.replaceChildren(
+  mount(container, 
     el('div', { class: 'page-head' }, [
-      el('div', {}, [
+      el('div', { class: 'page-head-text' }, [
         el('h1', { text: 'Servers' }),
         el('p', {
-          text: 'Configurations are grouped by country. Latency is measured, never simulated.',
+          text: hasAny
+            ? `${totalServers} configurations from ${groups.length} countr${groups.length === 1 ? 'y' : 'ies'} · grouped by country, latency measured — never simulated.`
+            : 'Configurations are grouped by country. Latency is measured, never simulated.',
         }),
       ]),
       el('div', { class: 'page-actions' }, [
         el('button', {
           class: 'btn',
-          disabled: fetching || !hasAny,
-          text: 'Ping all',
+          disabled: fetching || !hasAny || pinging,
           onclick: () => actions.pingAll(),
-        }),
+        }, [icon(ICONS.bolt, { size: 15 }), 'Ping all']),
         pinging
           ? el('button', { class: 'btn danger', text: 'Stop pings', onclick: () => actions.cancelPing() })
           : null,
@@ -80,103 +97,135 @@ export function renderServers(container, ctx) {
           class: 'btn primary',
           disabled: fetching,
           onclick: () => actions.refreshConfigs(),
-        }, fetching ? [el('span', { class: 'spinner' }), 'Fetching…'] : ['Refresh']),
+        }, fetching
+          ? [el('span', { class: 'spinner' }), 'Fetching…']
+          : [icon('M12 4V1L8 5l4 4V6a6 6 0 1 1-6 6H4a8 8 0 1 0 8-8z', { size: 15 }), 'Refresh']),
       ].filter(Boolean)),
     ]),
 
-    /* ------------------------------------------------------- toolbar */
-    el('div', { class: 'toolbar' }, [
-      el('div', { class: 'search' }, [
-        el('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true' }, [
-          el('path', {
-            d: 'M10 4a6 6 0 104.9 9.5l4.3 4.3 1.4-1.4-4.3-4.3A6 6 0 0010 4zm0 2a4 4 0 110 8 4 4 0 010-8z',
-            fill: 'currentColor',
+    /* ------------------------------------------------------ overview bar */
+    hasAny
+      ? el('div', { class: 'summary-bar' }, [
+          summaryStat('Countries', String(groups.length), 'grouped by flag'),
+          summaryStat('Servers', String(totalVisible), totalVisible === totalServers ? 'in the list' : `of ${totalServers} shown`),
+          summaryStat('Measured', `${totalMeasured}`, totalMeasured ? 'reachable checks' : 'not measured yet'),
+          meta && meta.fetchedAt
+            ? el('span', { class: 'summary-updated', text: `Updated ${fmtRelative(meta.fetchedAt)}` })
+            : null,
+        ].filter(Boolean))
+      : null,
+
+    /* --------------------------------------------------------- toolbar */
+    el('div', { class: 'toolbar-card' }, [
+      el('div', { class: 'toolbar' }, [
+        el('div', { class: 'search' }, [
+          icon(ICONS.search, { size: 15 }),
+          el('input', {
+            class: 'input',
+            id: 'server-search',
+            type: 'search',
+            placeholder: 'Search a server, country or protocol…',
+            'aria-label': 'Search servers',
+            value: ui.query,
+            oninput: (event) => {
+              ui.query = event.target.value;
+              actions.reloadServers();
+            },
           }),
         ]),
-        el('input', {
-          class: 'input',
-          id: 'server-search',
-          type: 'search',
-          placeholder: 'Search country, label or protocol…',
-          'aria-label': 'Search servers',
-          value: ui.query,
-          oninput: (event) => {
-            ui.query = event.target.value;
+        el('div', { class: 'chips', role: 'group', 'aria-label': 'Filter by status' }, [
+          chip('all', 'All', ui.status, (value) => {
+            ui.status = value;
+            actions.reloadServers();
+          }),
+          chip('ok', 'Reachable', ui.status, (value) => {
+            ui.status = value;
+            actions.reloadServers();
+          }),
+          chip('untested', 'Untested', ui.status, (value) => {
+            ui.status = value;
+            actions.reloadServers();
+          }),
+          chip('failed', 'Unreachable', ui.status, (value) => {
+            ui.status = value;
+            actions.reloadServers();
+          }),
+          chip('selected', 'Selected', ui.status, (value) => {
+            ui.status = value;
+            actions.reloadServers();
+          }),
+        ]),
+      ]),
+      el('div', { class: 'toolbar toolbar-secondary' }, [
+        el('select', {
+          class: 'select',
+          'aria-label': 'Filter by protocol',
+          onchange: (event) => {
+            ui.protocol = event.target.value;
             actions.reloadServers();
           },
-        }),
-      ]),
-      el('select', {
-        class: 'select',
-        'aria-label': 'Filter by protocol',
-        onchange: (event) => {
-          ui.protocol = event.target.value;
-          actions.reloadServers();
-        },
-      }, [
-        option('all', 'All protocols', ui.protocol),
-        option('vless', 'VLESS', ui.protocol),
-        option('vmess', 'VMess', ui.protocol),
-        option('trojan', 'Trojan', ui.protocol),
-        option('ss', 'Shadowsocks', ui.protocol),
-        option('socks', 'SOCKS', ui.protocol),
-        option('http', 'HTTP', ui.protocol),
-      ]),
-      el('select', {
-        class: 'select',
-        'aria-label': 'Filter by status',
-        onchange: (event) => {
-          ui.status = event.target.value;
-          actions.reloadServers();
-        },
-      }, [
-        option('all', 'Any status', ui.status),
-        option('ok', 'Reachable', ui.status),
-        option('failed', 'Unreachable', ui.status),
-        option('untested', 'Untested', ui.status),
-        option('selected', 'Selected only', ui.status),
-      ]),
-      el('select', {
-        class: 'select',
-        'aria-label': 'Sort servers',
-        onchange: (event) => {
-          ui.sort = event.target.value;
-          ui.userChoseSort = true;
-          actions.reloadServers();
-        },
-      }, [
-        option('latency', 'Sort: latency', ui.sort),
-        option('name', 'Sort: name', ui.sort),
-        option('country', 'Sort: label', ui.sort),
-        option('protocol', 'Sort: protocol', ui.sort),
-      ]),
-      el('label', { class: 'switch', title: 'Automatically sort by measured latency' }, [
-        el('input', {
-          type: 'checkbox',
-          checked: Boolean(settings.autoSort),
-          onchange: (event) => actions.updateSettings({ autoSort: event.target.checked }),
-        }),
-        el('span', { class: 'track' }),
-        el('span', { class: 'switch-text', text: 'Auto-sort' }),
-      ]),
+        }, [
+          option('all', 'All protocols', ui.protocol),
+          option('vless', 'VLESS', ui.protocol),
+          option('vmess', 'VMess', ui.protocol),
+          option('trojan', 'Trojan', ui.protocol),
+          option('ss', 'Shadowsocks', ui.protocol),
+          option('socks', 'SOCKS', ui.protocol),
+          option('http', 'HTTP', ui.protocol),
+        ]),
+        el('select', {
+          class: 'select',
+          'aria-label': 'Sort servers',
+          onchange: (event) => {
+            ui.sort = event.target.value;
+            ui.userChoseSort = true;
+            actions.reloadServers();
+          },
+        }, [
+          option('latency', 'Sort: fastest first', ui.sort),
+          option('name', 'Sort: name', ui.sort),
+          option('country', 'Sort: label', ui.sort),
+          option('protocol', 'Sort: protocol', ui.sort),
+        ]),
+        el('label', { class: 'switch switch-compact', title: 'Automatically sort by measured latency' }, [
+          el('input', {
+            type: 'checkbox',
+            checked: Boolean(settings.autoSort),
+            onchange: (event) => actions.updateSettings({ autoSort: event.target.checked }),
+          }),
+          el('span', { class: 'track' }),
+          el('span', { class: 'switch-text', text: 'Auto-sort' }),
+        ]),
+        groups.length
+          ? el('button', {
+              class: 'btn ghost small toolbar-end',
+              text: allOpen ? 'Collapse all' : 'Expand all',
+              onclick: () => {
+                if (allOpen) ui.expanded.clear();
+                else for (const group of groups) ui.expanded.add(group.name);
+                actions.rerenderServers();
+              },
+            })
+          : null,
+      ].filter(Boolean)),
     ]),
 
-    /* ---------------------------------------------------- meta strip */
+    /* ----------------------------------------------------- meta strip */
     meta && meta.stats && meta.stats.received > 0
       ? el('div', { class: 'meta-strip' }, [
-          el('span', {}, [el('strong', { text: String(meta.stats.kept) }), ' servers kept']),
+          el('span', {}, [el('strong', { text: String(meta.stats.kept) }), ' kept']),
           el('span', {}, [el('strong', { text: String(meta.stats.duplicates) }), ' duplicates removed']),
           el('span', {}, [el('strong', { text: String(meta.stats.rejected) }), ' rejected']),
           meta.stats.unsupported
             ? el('span', {}, [el('strong', { text: String(meta.stats.unsupported) }), ' unsupported scheme'])
             : null,
-          el('span', { text: `fetched ${fmtRelative(meta.fetchedAt)}` }),
+          el('span', { class: 'meta-right', text: `fetched ${fmtRelative(meta.fetchedAt)}` }),
         ].filter(Boolean))
       : null,
 
-    /* ------------------------------------------------------ progress */
+    /* ------------------------------------------------------- progress */
     fetching && state.fetch && state.fetch.phase !== 'done' && state.fetch.phase !== 'error'
-      ? el('div', { class: 'card tight' }, [
+      ? el('div', { class: 'card tight progress-card' }, [
           el('div', { class: 'btn-row' }, [
             el('span', { class: 'spinner' }),
             el('span', {
@@ -237,7 +286,7 @@ export function renderServers(container, ctx) {
                 action: el('button', {
                   class: 'btn primary',
                   text: 'Fetch configurations',
-                  onclick: () => actions.reloadServers() || actions.refreshConfigs(),
+                  onclick: () => actions.refreshConfigs(),
                 }),
               }),
             ])
@@ -245,12 +294,31 @@ export function renderServers(container, ctx) {
   );
 }
 
+function summaryStat(label, value, sub) {
+  return el('div', { class: 'summary-stat' }, [
+    el('span', { class: 'summary-value', text: value }),
+    el('span', { class: 'summary-label', text: label }),
+    el('span', { class: 'summary-sub', text: sub }),
+  ]);
+}
+
+function chip(value, label, current, onSelect) {
+  const active = value === current;
+  return el('button', {
+    class: `chip ${active ? 'is-active' : ''}`.trim(),
+    type: 'button',
+    'aria-pressed': String(active),
+    text: label,
+    onclick: () => onSelect(value),
+  });
+}
+
 function option(value, label, current) {
   return el('option', { value, selected: value === current, text: label });
 }
 
 function groupList(groups, ctx) {
-  const { state, actions } = ctx;
+  const { actions } = ctx;
   const wrapper = el('div', {
     id: 'server-list',
     onpointerenter: () => actions.setInteracting(true),
@@ -282,6 +350,7 @@ function groupList(groups, ctx) {
   for (const group of groups) {
     const open = ui.expanded.has(group.name);
     const bodyId = `country-${group.name.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}`;
+    const fastest = fastestLatency(group.servers);
 
     const header = el(
       'button',
@@ -296,16 +365,17 @@ function groupList(groups, ctx) {
         },
       },
       [
-        el('svg', { class: 'chevron', viewBox: '0 0 24 24', 'aria-hidden': 'true' }, [
-          el('path', { d: 'M9 6l6 6-6 6', stroke: 'currentColor', 'stroke-width': '2.2', fill: 'none', 'stroke-linecap': 'round' }),
-        ]),
-        el('span', { class: 'country-flag', text: group.flag || '🌐', 'aria-hidden': 'true' }),
+        icon(ICONS.chevron, { size: 15, stroke: true, strokeWidth: 2.2 }),
+        flagIcon(group.code, group.flag, 'country-flag'),
         el('span', { class: 'country-name', text: group.name }),
         el('span', { class: 'country-count', text: `${group.count} server${group.count === 1 ? '' : 's'}` }),
-        el('span', {
-          class: 'country-measured',
-          text: group.measured > 0 ? `${group.measured} measured` : 'untested',
-        }),
+        el('span', { class: 'country-spacer' }),
+        fastest !== null
+          ? el('span', { class: 'country-fastest' }, [
+              el('span', { class: 'latency-dot ok', 'aria-hidden': 'true' }),
+              `fastest ${fastest} ms`,
+            ])
+          : el('span', { class: 'country-fastest muted', text: 'not measured' }),
       ]
     );
 
@@ -313,7 +383,7 @@ function groupList(groups, ctx) {
     for (const row of group.servers) inner.appendChild(serverRow(row, ctx));
 
     wrapper.appendChild(
-      el('section', { class: 'country-group' }, [
+      el('section', { class: `country-group ${open ? 'is-open' : ''}`.trim() }, [
         header,
         el(
           'div',
@@ -335,8 +405,18 @@ function allRows(groups) {
   return groups.flatMap((g) => g.servers);
 }
 
+function fastestLatency(rows) {
+  let best = null;
+  for (const row of rows) {
+    if (row.latencyOk === true && Number.isFinite(row.latency) && (best === null || row.latency < best)) {
+      best = row.latency;
+    }
+  }
+  return best;
+}
+
 function serverRow(row, ctx) {
-  const { state, api, actions } = ctx;
+  const { state, actions } = ctx;
   const latency = fmtLatency(row);
   const isSelected = Boolean(row.selected);
   const pinging = ui.pinging.has(row.id);
@@ -344,61 +424,71 @@ function serverRow(row, ctx) {
     state.connection && state.connection.serverId === row.id && state.connection.state === 'connected';
 
   const statusPill = connectedHere
-    ? el('span', { class: 'pill ok', text: 'in use' })
+    ? el('span', { class: 'pill ok row-pill', text: 'in use' })
     : isSelected
-      ? el('span', { class: 'pill accent', text: 'selected' })
-      : null;
+      ? el('span', { class: 'pill accent row-pill', text: 'selected' })
+      : el('span', { class: 'row-pill', text: '' });
+
+  const select = () => actions.selectServer(row.id);
 
   return el('div', {
-    class: `server-row ${isSelected ? 'is-selected' : ''}`.trim(),
+    class: `server-row ${isSelected ? 'is-selected' : ''} ${connectedHere ? 'is-connected' : ''}`.trim(),
     dataset: { id: row.id },
+    onclick: (event) => {
+      // Row surfaces are clickable; buttons inside keep their own behaviour.
+      if (event.target.closest && event.target.closest('button')) return;
+      select();
+    },
   }, [
-    el('span', { class: 'server-name', title: `${row.label} — ${row.country}` }, [
-      row.flag ? el('span', { class: 'row-flag', text: row.flag, 'aria-hidden': 'true' }) : null,
-      document.createTextNode(row.label),
+    el('button', {
+      class: 'server-main',
+      type: 'button',
+      title: `${row.label} — ${row.host}:${row.port}`,
+      'aria-label': `${isSelected ? 'Selected server' : 'Select'} ${row.label}`,
+      onclick: select,
+    }, [
+      flagIcon(row.countryCode, row.flag, 'row-flag'),
+      el('span', { class: 'server-lines' }, [
+        el('span', { class: 'server-label', text: row.label }),
+        el('span', { class: 'server-host', text: `${row.host}:${row.port}` }),
+      ]),
     ]),
     protocolBadge(row.protocol),
-    el('span', { class: 'server-sec', text: `${row.security !== 'none' ? row.security : row.network}` }),
+    el('span', { class: 'server-sec', text: row.security !== 'none' ? row.security : row.network }),
     statusPill,
     el('span', {
       class: `server-latency ${latency.cls}`,
-      text: pinging ? '…' : latency.text,
       title: row.latencyKind ? `Measured via ${row.latencyKind}` : 'Not measured',
-    }),
+    }, [
+      pinging
+        ? el('span', { class: 'spinner small' })
+        : el('span', { class: `latency-dot ${latency.cls}`, 'aria-hidden': 'true' }),
+      el('span', { text: pinging ? 'testing' : latency.text }),
+    ]),
     el('div', { class: 'row-actions' }, [
-      el('button', {
-        class: `icon-btn ${pinging ? 'busy' : ''}`.trim(),
-        title: 'Measure latency',
-        'aria-label': `Measure latency for ${row.label}`,
-        onclick: () => {
-          ui.pinging.add(row.id);
+      actionButton(ICONS.bolt, `Measure latency for ${row.label}`, 'Measure latency', () => {
+        ui.pinging.add(row.id);
+        actions.rerenderServers();
+        actions.pingOne(row.id).finally(() => {
+          ui.pinging.delete(row.id);
           actions.rerenderServers();
-          actions.pingOne(row.id).finally(() => {
-            ui.pinging.delete(row.id);
-            actions.rerenderServers();
-          });
-        },
-      }, [el('span', { class: pinging ? 'spinner' : '', text: pinging ? '' : '⚡' })]),
-      el('button', {
-        class: 'icon-btn',
-        title: isSelected ? 'Already selected' : 'Select this server',
-        'aria-label': `Select ${row.label}`,
-        onclick: () => actions.selectServer(row.id),
-      }, [el('span', { text: isSelected ? '✓' : '◎' })]),
-      el('button', {
-        class: 'icon-btn',
-        title: 'Technical details',
-        'aria-label': `Details for ${row.label}`,
-        onclick: () => showDetails(row, api),
-      }, [el('span', { text: 'ⓘ' })]),
-      el('button', {
-        class: 'icon-btn',
-        title: 'Copy configuration URI',
-        'aria-label': `Copy configuration for ${row.label}`,
-        onclick: () => actions.copyServer(row.id),
-      }, [el('span', { text: '⧉' })]),
+        });
+      }, pinging),
+      actionButton(ICONS.target, isSelected ? 'Already selected' : 'Select this server', isSelected ? 'Selected' : 'Select', select),
+      actionButton(ICONS.info, `Details for ${row.label}`, 'Details', () => showDetails(row, ctx.api)),
+      actionButton(ICONS.copy, `Copy configuration for ${row.label}`, 'Copy configuration', () => actions.copyServer(row.id)),
     ]),
   ]);
+}
+
+function actionButton(pathData, ariaLabel, title, onclick, busy = false) {
+  return el('button', {
+    class: `icon-btn ${busy ? 'busy' : ''}`.trim(),
+    type: 'button',
+    title,
+    'aria-label': ariaLabel,
+    onclick,
+  }, busy ? [el('span', { class: 'spinner small' })] : [icon(pathData, { size: 15 })]);
 }
 
 async function showDetails(row, api) {
@@ -412,12 +502,12 @@ async function showDetails(row, api) {
     title: `${row.label}`,
     body: [
       el('p', {
+        class: 'modal-note',
         text: 'Credentials are masked. The full configuration URI is available via Copy configuration.',
-        style: { marginTop: 0 },
       }),
       kvList([
         ['Protocol', d.protocol.toUpperCase()],
-        ['Country', `${row.flag ? `${row.flag} ` : ''}${d.country || 'Unknown'}`],
+        ['Country', `${row.country || 'Unknown'}`],
         ['Endpoint', `${d.host}:${d.port}`],
         ['Security', d.security || 'none'],
         ['Transport', d.transport || 'tcp'],

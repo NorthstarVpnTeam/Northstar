@@ -5,6 +5,7 @@
 
 import {
   el,
+  mount,
   fmtClock,
   fmtDuration,
   fmtBytes,
@@ -12,6 +13,7 @@ import {
   kvList,
   stateBlock,
   toast,
+  flagIcon,
 } from '../ui.js';
 
 const STATE_LABELS = {
@@ -37,7 +39,7 @@ export function renderConnection(container, ctx) {
   const core = state.core;
   const settings = state.settings || {};
 
-  container.replaceChildren(
+  mount(container, 
     el('div', { class: 'page-head' }, [
       el('div', {}, [
         el('h1', { text: 'Connection' }),
@@ -63,8 +65,12 @@ export function renderConnection(container, ctx) {
       ]),
       conn && conn.server
         ? el('div', { class: 'hero-server', style: { marginBottom: '12px' } }, [
-            el('strong', { text: `${conn.server.flag ? `${conn.server.flag} ` : ''}${conn.server.label}` }),
-            ` · ${conn.server.protocol.toUpperCase()} · ${conn.server.country} · ${conn.server.security}`,
+            flagIcon(conn.server.countryCode, conn.server.flag, 'hero-flag'),
+            el('strong', { text: conn.server.label }),
+            el('span', {
+              class: 'hero-server-meta',
+              text: `${conn.server.protocol.toUpperCase()} · ${conn.server.country} · ${conn.server.security}`,
+            }),
           ])
         : el('p', { class: 'card-sub', text: 'No server selected.' }),
       kvList([

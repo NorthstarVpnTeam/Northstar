@@ -133,6 +133,7 @@ class ConnectionManager {
             label: server.label,
             protocol: server.protocol,
             country: server.country || 'Unknown',
+            countryCode: server.countryCode || null,
             flag: server.flag || '',
             security: server.security,
             network: server.network,

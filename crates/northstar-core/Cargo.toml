@@ -1,0 +1,36 @@
+[package]
+name = "northstar-core"
+version = "2.0.0"
+edition = "2021"
+description = "Northstar V2Ray engine: configuration fetching, parsing, grouping, latency and proxy-core integration."
+license = "MIT"
+
+[dependencies]
+base64 = "0.22"
+futures-util = "0.3"
+percent-encoding = "2"
+reqwest = { version = "0.12", default-features = false, features = [
+  "rustls-tls",
+  "stream",
+  "socks",
+  "http2",
+  "charset",
+] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+thiserror = "2"
+tokio = { version = "1", features = [
+  "rt-multi-thread",
+  "macros",
+  "net",
+  "time",
+  "process",
+  "io-util",
+  "sync",
+  "fs",
+] }
+url = "2"
+
+[dev-dependencies]
+tempfile = "3"

@@ -70,6 +70,20 @@ const EXTRA_ALIASES = {
   'macedonia': 'MK',
 };
 
+/**
+ * Display names that read better than the bare country name. The ISO name is
+ * kept for lookups, so aliases and flag resolution are unaffected.
+ */
+const COUNTRY_DISPLAY_NAMES = {
+  NL: 'The Netherlands',
+};
+
+/** Human-facing name for a country code; falls back to the ISO name. */
+function countryDisplayName(code) {
+  const upper = typeof code === 'string' ? code.toUpperCase() : '';
+  return COUNTRY_DISPLAY_NAMES[upper] || FLAG_NAMES[upper] || '';
+}
+
 const ALIASES = new Map();
 for (const [code, name] of Object.entries(FLAG_NAMES)) {
   ALIASES.set(name.toLowerCase(), code);
@@ -133,7 +147,7 @@ function detectCountry(rawLabel) {
 
   const flagCode = codeFromFlag(rawLabel);
   if (flagCode) {
-    return { code: flagCode, name: FLAG_NAMES[flagCode], flag: flagFor(flagCode) };
+    return { code: flagCode, name: countryDisplayName(flagCode), flag: flagFor(flagCode) };
   }
 
   let base = stripDecoration(rawLabel);
@@ -158,7 +172,7 @@ function detectCountry(rawLabel) {
   }
 
   if (!code || !FLAG_NAMES[code]) return null;
-  return { code, name: FLAG_NAMES[code], flag: flagFor(code) };
+  return { code, name: countryDisplayName(code), flag: flagFor(code) };
 }
 
 /** Builds a flag emoji from an ISO 3166-1 alpha-2 code; '' if unknown. */
@@ -179,5 +193,7 @@ module.exports = {
   stripDecoration,
   normalizeCountryKey,
   flagFor,
+  countryDisplayName,
+  COUNTRY_DISPLAY_NAMES,
   FLAG_NAMES,
 };

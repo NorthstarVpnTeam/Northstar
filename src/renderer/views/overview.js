@@ -5,6 +5,7 @@
 
 import {
   el,
+  mount,
   fmtLatency,
   fmtRate,
   fmtBytes,
@@ -12,6 +13,8 @@ import {
   fmtDuration,
   protocolBadge,
   stateBlock,
+  flagIcon,
+  icon,
 } from '../ui.js';
 import { createChart } from '../components/chart.js';
 
@@ -33,7 +36,7 @@ export function renderOverview(container, ctx) {
   const selected = selectedServer(state);
   const settings = state.settings || {};
 
-  container.replaceChildren(
+  mount(container, 
     el('div', { class: 'page-head' }, [
       el('div', {}, [
         el('h1', { text: 'Overview' }),
@@ -72,11 +75,18 @@ export function renderOverview(container, ctx) {
           ]),
           el('p', { class: 'hero-server' }, selected
             ? [
-                'Selected: ',
-                el('strong', { text: `${selected.flag ? `${selected.flag} ` : ''}${selected.label}` }),
-                ` · ${selected.protocol.toUpperCase()} · ${selected.country}`,
+                flagIcon(selected.countryCode, selected.flag, 'hero-flag'),
+                el('strong', { text: selected.label }),
+                el('span', {
+                  class: 'hero-server-meta',
+                  text: `${selected.protocol.toUpperCase()} · ${selected.country}`,
+                }),
               ]
-            : [el('strong', { text: 'No server selected' }), ' — pick one from the Servers page.']),
+            : [
+                el('span', { class: 'hero-server-empty', text: 'No server selected yet' }),
+                el('span', { class: 'hero-server-meta', text: 'Pick one below or from the Servers page.' }),
+              ]),
+          serverPicker(state, actions),
           el('div', { class: 'hero-meta' }, [
             selected ? protocolBadge(selected.protocol) : null,
             selected && selected.security && selected.security !== 'none'
@@ -131,6 +141,9 @@ export function renderOverview(container, ctx) {
         : null,
     ]),
 
+    /* -------------------------------------------------- first-run steps */
+    status === 'connected' ? null : stepsCard(state, actions),
+
     /* -------------------------------------------------------- metrics */
     el('div', { class: 'grid grid-4', style: { marginBottom: '16px' } }, [
       latencyMetric(state),
@@ -177,6 +190,118 @@ export function renderOverview(container, ctx) {
 function selectedServer(state) {
   if (!state.servers.rows) return null;
   return state.servers.rows.find((r) => r.selected) || null;
+}
+
+/** Direct server picker, grouped by country, so a server can be chosen from the dashboard. */
+function serverPicker(state, actions) {
+  const groups = state.servers.groups || [];
+  if (!groups.length) return null;
+
+  const select = el(
+    'select',
+    {
+      class: 'select quick-pick-select',
+      'aria-label': 'Choose a server',
+      onchange: (event) => {
+        if (event.target.value) actions.selectServer(event.target.value);
+      },
+    },
+    groups.map((group) =>
+      el(
+        'optgroup',
+        { label: group.name },
+        group.servers.map((row) =>
+          el('option', {
+            value: row.id,
+            selected: Boolean(row.selected),
+            text: `${row.label}${
+              row.latencyOk === true
+                ? ` — ${row.latency} ms`
+                : row.latencyOk === false
+                  ? ' — unreachable'
+                  : ''
+            }`,
+          })
+        )
+      )
+    )
+  );
+
+  return el('div', { class: 'quick-pick' }, [
+    icon(
+      'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zm9 3h-2.1a7 7 0 0 0-5.9-5.9V3h-2v2.1A7 7 0 0 0 5.1 11H3v2h2.1a7 7 0 0 0 5.9 5.9V21h2v-2.1a7 7 0 0 0 5.9-5.9H21v-2z',
+      { size: 15 }
+    ),
+    el('span', { class: 'quick-pick-label', text: 'Server' }),
+    select,
+  ]);
+}
+
+/** Three-step onboarding shown until a tunnel is up. */
+function stepsCard(state, actions) {
+  const conn = state.connection;
+  const connected = Boolean(conn && conn.state === 'connected');
+  const selected = selectedServer(state);
+  const settings = state.settings || {};
+  const socks = conn ? conn.socksPort : settings.socksPort || 10808;
+  const http = conn ? conn.httpPort : settings.httpPort || 10809;
+
+  const steps = [
+    {
+      title: 'Choose a server',
+      body: selected
+        ? `${selected.label}${selected.country ? ` · ${selected.country}` : ''}`
+        : 'Pick any server that is reachable; latency is shown as it is measured.',
+      done: Boolean(selected),
+      action: selected
+        ? null
+        : el('button', {
+            class: 'btn small',
+            text: 'Browse servers',
+            onclick: () => actions.navigate('servers'),
+          }),
+    },
+    {
+      title: 'Connect',
+      body: connected
+        ? 'The local proxy is running and validated.'
+        : 'One click starts the proxy core and validates the tunnel before reporting Connected.',
+      done: connected,
+      action: selected && !connected
+        ? el('button', { class: 'btn primary small', text: 'Connect now', onclick: () => actions.toggleConnect() })
+        : null,
+    },
+    {
+      title: 'Point your apps at Northstar',
+      body: `SOCKS5 127.0.0.1:${socks} · HTTP 127.0.0.1:${http}`,
+      done: false,
+      action: null,
+    },
+  ];
+
+  return el('section', { class: 'steps-card' }, [
+    el('div', { class: 'steps-head' }, [
+      el('h2', { text: 'Get connected in three steps' }),
+      el('p', {
+        class: 'card-sub',
+        text: 'Northstar runs a local proxy by default — system-wide routing stays off unless you enable it in Settings.',
+      }),
+    ]),
+    el(
+      'ol',
+      { class: 'steps' },
+      steps.map((step, index) =>
+        el('li', { class: `step ${step.done ? 'is-done' : ''}`.trim() }, [
+          el('span', { class: 'step-index', text: step.done ? '✓' : String(index + 1) }),
+          el('div', { class: 'step-body' }, [
+            el('strong', { text: step.title }),
+            el('span', { text: step.body }),
+            step.action,
+          ]),
+        ])
+      )
+    ),
+  ]);
 }
 
 function chartRoot(conn) {
