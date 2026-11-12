@@ -17,10 +17,13 @@ if (tauri && !window.northstar) {
 
   const call = (method, payload = null) => invoke('northstar_call', { method, payload });
 
+  /** Event registrations still in flight; `app.ready()` awaits all of them. */
+  const pendingListens = new Set();
+
   /** Subscribes to a Rust-emitted event; returns an unsubscribe function. */
   const subscribe = (event, callback) => {
     let unlisten = null;
-    listen(event, (message) => {
+    const registration = listen(event, (message) => {
       try {
         callback(message.payload);
       } catch (error) {
@@ -31,6 +34,8 @@ if (tauri && !window.northstar) {
         unlisten = dispose;
       })
       .catch(() => {});
+    pendingListens.add(registration);
+    registration.then(() => pendingListens.delete(registration));
     return () => {
       if (unlisten) unlisten();
     };
@@ -94,6 +99,12 @@ if (tauri && !window.northstar) {
     }),
     app: Object.freeze({
       info: () => call('app:info'),
+      // Resolves only after every subscribed listener is registered, so the
+      // shell can safely start emitting background events after this call.
+      ready: async () => {
+        await Promise.all(pendingListens);
+        return call('app:ready');
+      },
       openExternal: (url) => call('app:openExternal', { url }),
     }),
     // Tauri handles window controls natively; no round trip through Rust.

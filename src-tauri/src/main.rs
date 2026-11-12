@@ -30,9 +30,10 @@ fn main() {
 
                 // Mirror the Electron shell: load the cached list immediately,
                 // then refresh the server list in the background at launch.
-                // The short delay lets the window attach its event listeners
-                // and render the cache before progress events start arriving.
-                tokio::time::sleep(std::time::Duration::from_millis(1200)).await;
+                // Wait for the renderer's readiness signal, so progress and
+                // `servers:changed` events can never be emitted before the UI
+                // has subscribed to them.
+                state.wait_ui_ready().await;
                 let _ = commands::refresh_configs(&setup_app, state.inner()).await;
             });
             Ok(())

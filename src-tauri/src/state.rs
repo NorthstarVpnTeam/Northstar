@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex as StdMutex};
 
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Notify};
 
 use northstar_core::connection::ConnectionManager;
 use northstar_core::core_runtime::{locate, CoreInfo};
@@ -23,6 +23,9 @@ pub struct AppState {
     pub speed_running: AtomicBool,
     pub speed_cancelled: Arc<AtomicBool>,
     pub cache_file: PathBuf,
+    /// Resolved by the renderer's `app:ready` call once every event listener
+    /// is registered. The launch-time refresh waits on this, never a timer.
+    pub ui_ready: Notify,
 }
 
 fn exe_dir() -> PathBuf {
@@ -69,6 +72,7 @@ impl AppState {
             speed_running: AtomicBool::new(false),
             speed_cancelled: Arc::new(AtomicBool::new(false)),
             cache_file,
+            ui_ready: Notify::new(),
         };
         if let Some(path) = core_for_log.path {
             state.log(app, "info", &format!("Proxy core: {path}"));
@@ -131,6 +135,16 @@ impl AppState {
         }
         let _ = app.emit("core:status", json!({ "status": self.core_status() }));
         info
+    }
+
+    /// Waits until the renderer reports that its event listeners are live.
+    /// `Notify` keeps a permit if the signal arrives before this is awaited.
+    pub async fn wait_ui_ready(&self) {
+        self.ui_ready.notified().await;
+    }
+
+    pub fn mark_ui_ready(&self) {
+        self.ui_ready.notify_one();
     }
 
     pub fn cancel_latency(&self) {

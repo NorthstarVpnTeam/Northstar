@@ -389,6 +389,13 @@ async fn dispatch(
             "locale": "en-US",
         }),
 
+        // Sent by the renderer after all event listeners are registered.
+        // Unblocks the launch-time background refresh in `main.rs`.
+        "app:ready" => {
+            state.mark_ui_ready();
+            json!({ "ok": true })
+        }
+
         "app:openExternal" => {
             let url = text(&payload, "url").unwrap_or_default();
             match open_external(&url) {

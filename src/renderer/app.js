@@ -593,6 +593,10 @@ async function init() {
   updateSidebarStatus();
   wireEvents();
 
+  // The launch-time background refresh waits for this signal instead of a
+  // timer: every event listener above is registered before it resolves.
+  api.app.ready().catch(() => {});
+
   await actions.reloadServers();
 
   const cache = await api.servers.getSelected();
