@@ -2092,3 +2092,87 @@ body.compact-rows .country-header {
 body.compact-rows .server-host {
   display: none;
 }
+
+/* ------------------------------------------------- country quick-jump rail */
+
+.country-rail {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 2px 2px 12px;
+  margin: 0 -2px;
+  scrollbar-width: thin;
+  scroll-snap-type: x proximity;
+}
+.country-rail::-webkit-scrollbar {
+  height: 8px;
+}
+.rail-chip {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 6px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  scroll-snap-align: start;
+  box-shadow: var(--shadow-xs);
+  transition: transform var(--transition), border-color var(--transition),
+    background var(--transition), color var(--transition), box-shadow var(--transition);
+}
+.rail-chip:hover {
+  transform: translateY(-1px);
+  border-color: var(--accent);
+  color: var(--text);
+  box-shadow: var(--shadow-sm);
+}
+.rail-chip:active {
+  transform: translateY(0);
+  background: var(--accent-soft);
+}
+.rail-chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.rail-flag {
+  width: 18px;
+  height: 13px;
+  border-radius: 2px;
+  object-fit: cover;
+  box-shadow: 0 0 0 1px rgba(20, 28, 45, 0.08);
+}
+.rail-name {
+  max-width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rail-count {
+  min-width: 22px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  color: var(--text-tertiary);
+  font-size: 11px;
+  text-align: center;
+}
+
+/* Country list polish: instant open, clear focus, comfortable scroll target. */
+.country-group {
+  scroll-margin-top: 16px;
+}
+.country-header:active {
+  background: var(--surface-3);
+}
+.country-header:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.country-body.is-open > .country-inner {
+  overscroll-behavior: contain;
+}

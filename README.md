@@ -110,6 +110,9 @@ WebView2 runtime, so no browser engine is shipped.
 > CI equivalent: `.github/workflows/build.yml` runs `npm run verify`, fetches
 > the pinned Xray core and runs `npx tauri build` on `windows-latest`, then
 > uploads the NSIS installer and MSI as workflow artifacts.
+>
+> Pushing a tag such as `v2.0.0` also publishes those two installers to a
+> GitHub Release with generated notes; ordinary pushes only produce artifacts.
 
 ---
 
@@ -160,11 +163,13 @@ each) and is **not** part of CI — run it when you want a current answer.
 - **TUN mode end-to-end** — interface creation, system routes and the
   privilege preflight against a real elevated Windows/Linux process were not run
   here; the preflight logic is unit-tested with injected platform/exec answers
-- **System proxy, real-delay measurement and Xray stats** — the Rust build does
-  not yet apply system proxy settings (connecting with it on explains why), does
-  not implement the per-server real-delay probe, and does not read Xray's stats
-  API, so throughput/session totals are shown as unavailable instead of made up.
-  TCP/HTTP latency, local proxy (SOCKS + HTTP) and TUN pass-through are wired.
+- **Real-delay measurement and Xray stats** — the Rust build does not implement
+  the per-server real-delay probe and does not read Xray's stats API, so
+  throughput/session totals are shown as unavailable instead of made up.
+  System proxy mode *is* implemented on Windows: it is applied after validation,
+  follows its toggle while connected, and is restored on disconnect, on exit,
+  and on the next launch after a crash. TCP/HTTP latency, local proxy (SOCKS +
+  HTTP) and TUN pass-through are wired.
 - **The Tauri shell itself** — this environment lacks the WebKitGTK development
   libraries, so the app crate could not be compiled here. The Rust engine crate
   (`crates/northstar-core`) is built and tested here; the shell needs

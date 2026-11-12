@@ -91,6 +91,12 @@ export function renderConnection(container, ctx) {
       status === 'error' && conn && conn.error
         ? el('div', { class: 'note warn', style: { marginTop: '12px' }, text: conn.error })
         : null,
+      conn && conn.systemProxy && conn.systemProxy.error
+        ? el('div', { class: 'note warn', style: { marginTop: '12px' } }, [
+            el('strong', { text: 'System proxy: ' }),
+            conn.systemProxy.error,
+          ])
+        : null,
       status === 'connected'
         ? el('div', { class: 'note', style: { marginTop: '12px' } }, [
             el('strong', { text: 'What is protected: ' }),

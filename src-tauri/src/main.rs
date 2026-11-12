@@ -19,6 +19,41 @@ fn main() {
             let setup_app = handle.clone();
             tauri::async_runtime::spawn(async move {
                 let state = setup_app.state::<AppState>();
+
+                // A crash or forced exit may have left Windows pointing at a
+                // local port that no longer exists. Restore the snapshot from
+                // the previous session before doing anything else.
+                if let Some(result) = state.system_proxy.lock().await.restore_stale().await {
+                    match result {
+                        Ok(restored) if restored.restored => {
+                            state.log(
+                                &setup_app,
+                                "info",
+                                "Restored the system proxy from a previous session.",
+                            );
+                        }
+                        Ok(restored) => {
+                            if let Some(reason) = restored.reason {
+                                state.log(
+                                    &setup_app,
+                                    "warn",
+                                    &format!("System proxy left unchanged: {reason}"),
+                                );
+                            }
+                        }
+                        Err(error) => {
+                            state.log(
+                                &setup_app,
+                                "warn",
+                                &format!(
+                                    "Could not restore the previous system proxy: {}",
+                                    error.message
+                                ),
+                            );
+                        }
+                    }
+                }
+
                 let _ = setup_app.emit(
                     "core:status",
                     serde_json::json!({
@@ -39,6 +74,30 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![commands::northstar_call])
-        .run(tauri::generate_context!())
-        .expect("error while running Northstar V2Ray");
+        .build(tauri::generate_context!())
+        .expect("error while building Northstar V2Ray")
+        .run(|handle, event| {
+            if matches!(event, tauri::RunEvent::Exit) {
+                let state = handle.state::<AppState>();
+                tauri::async_runtime::block_on(async {
+                    match state.system_proxy.lock().await.restore().await {
+                        Ok(result) if result.restored => {
+                            state.log(handle, "info", "System proxy restored on exit.");
+                        }
+                        Ok(_) => {}
+                        Err(error) => {
+                            state.log(
+                                handle,
+                                "warn",
+                                &format!(
+                                    "Could not restore the system proxy on exit: {}",
+                                    error.message
+                                ),
+                            );
+                        }
+                    }
+                    state.connection.mark_system_proxy(false, None).await;
+                });
+            }
+        });
 }

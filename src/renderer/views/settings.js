@@ -249,7 +249,7 @@ export function renderSettings(container, ctx) {
       ]),
 
       el('div', { class: 'setting-row' }, [
-        info('System proxy', 'Windows only. While connected, point the current user\'s proxy settings at Northstar so apps that follow the system proxy route through the tunnel. Your previous settings are saved first and restored on disconnect — nothing changes while disconnected.'),
+        info('System proxy', 'Windows only. While connected, point the current user\'s proxy settings at Northstar so apps that follow the system proxy route through the tunnel. Applied after validation succeeds; toggling while connected applies or reverts immediately. Your previous settings are saved first and restored on disconnect, exit, or the next launch after a crash — nothing changes while disconnected.'),
         control([
           el('label', { class: 'switch' }, [
             el('input', {

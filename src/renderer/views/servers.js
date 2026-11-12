@@ -210,6 +210,9 @@ export function renderServers(container, ctx) {
       ].filter(Boolean)),
     ]),
 
+    /* --------------------------------------------------- country rail */
+    groups.length > 1 ? countryRail(groups) : null,
+
     /* ----------------------------------------------------- meta strip */
     meta && meta.stats && meta.stats.received > 0
       ? el('div', { class: 'meta-strip' }, [
@@ -317,6 +320,48 @@ function option(value, label, current) {
   return el('option', { value, selected: value === current, text: label });
 }
 
+function countrySlug(name) {
+  return name.replace(/[^a-z0-9]+/gi, '-').toLowerCase();
+}
+
+/** Instant country jump bar: click a flag to open and scroll to that country. */
+function countryRail(groups) {
+  const rail = el('div', {
+    class: 'country-rail',
+    role: 'list',
+    'aria-label': 'Jump to a country',
+  });
+  for (const group of groups) {
+    rail.appendChild(
+      el(
+        'button',
+        {
+          class: 'rail-chip',
+          type: 'button',
+          role: 'listitem',
+          title: `Open ${group.name}`,
+          onclick: () => openCountry(group.name),
+        },
+        [
+          flagIcon(group.code, group.flag, 'rail-flag'),
+          el('span', { class: 'rail-name', text: group.name }),
+          el('span', { class: 'rail-count', text: String(group.count) }),
+        ]
+      )
+    );
+  }
+  return rail;
+}
+
+/** Opens a country in place — directly in the DOM, with no IPC or re-render. */
+function openCountry(name) {
+  const section = document.getElementById(`country-${countrySlug(name)}`);
+  if (!section) return;
+  const header = section.querySelector('.country-header');
+  if (header && !section.classList.contains('is-open')) header.click();
+  section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
 function groupList(groups, ctx) {
   const { actions } = ctx;
   const wrapper = el('div', {
@@ -348,27 +393,57 @@ function groupList(groups, ctx) {
   }
 
   for (const group of groups) {
-    const open = ui.expanded.has(group.name);
-    const bodyId = `country-${group.name.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}`;
+    const initialOpen = ui.expanded.has(group.name);
+    const slug = countrySlug(group.name);
+    const sectionId = `country-${slug}`;
+    const bodyId = `country-body-${slug}`;
     const fastest = fastestLatency(group.servers);
+
+    const body = el('div', {
+      class: `country-body ${initialOpen ? 'is-open' : ''}`.trim(),
+      id: bodyId,
+      role: 'region',
+      'aria-label': `${group.name} servers`,
+    });
+    const inner = el('div', { class: 'country-inner' });
+    body.appendChild(inner);
+
+    // Rows are built lazily on first expand, so a closed country costs one
+    // header and opening it is a local DOM change — never a page re-render.
+    let rendered = false;
+    const ensureRows = () => {
+      if (rendered) return;
+      rendered = true;
+      const fragment = document.createDocumentFragment();
+      for (const row of group.servers) fragment.appendChild(serverRow(row, ctx));
+      inner.appendChild(fragment);
+    };
+    if (initialOpen) ensureRows();
 
     const header = el(
       'button',
       {
         class: 'country-header',
-        'aria-expanded': String(open),
+        'aria-expanded': String(initialOpen),
         'aria-controls': bodyId,
         onclick: () => {
-          if (ui.expanded.has(group.name)) ui.expanded.delete(group.name);
-          else ui.expanded.add(group.name);
-          actions.rerenderServers();
+          const open = !section.classList.contains('is-open');
+          if (open) ensureRows();
+          section.classList.toggle('is-open', open);
+          body.classList.toggle('is-open', open);
+          header.setAttribute('aria-expanded', String(open));
+          if (open) ui.expanded.add(group.name);
+          else ui.expanded.delete(group.name);
         },
       },
       [
         icon(ICONS.chevron, { size: 15, stroke: true, strokeWidth: 2.2 }),
         flagIcon(group.code, group.flag, 'country-flag'),
         el('span', { class: 'country-name', text: group.name }),
-        el('span', { class: 'country-count', text: `${group.count} server${group.count === 1 ? '' : 's'}` }),
+        el('span', {
+          class: 'country-count',
+          text: `${group.count} server${group.count === 1 ? '' : 's'}`,
+        }),
         el('span', { class: 'country-spacer' }),
         fastest !== null
           ? el('span', { class: 'country-fastest' }, [
@@ -379,24 +454,12 @@ function groupList(groups, ctx) {
       ]
     );
 
-    const inner = el('div', { class: 'country-inner' });
-    for (const row of group.servers) inner.appendChild(serverRow(row, ctx));
-
-    wrapper.appendChild(
-      el('section', { class: `country-group ${open ? 'is-open' : ''}`.trim() }, [
-        header,
-        el(
-          'div',
-          {
-            class: `country-body ${open ? 'is-open' : ''}`.trim(),
-            id: bodyId,
-            role: 'region',
-            'aria-label': `${group.name} servers`,
-          },
-          [inner]
-        ),
-      ])
+    const section = el(
+      'section',
+      { id: sectionId, class: `country-group ${initialOpen ? 'is-open' : ''}`.trim() },
+      [header, body]
     );
+    wrapper.appendChild(section);
   }
   return wrapper;
 }

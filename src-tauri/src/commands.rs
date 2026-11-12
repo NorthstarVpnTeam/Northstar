@@ -19,6 +19,7 @@ use northstar_core::latency::{measure, MeasureOptions, DEFAULT_VALIDATION_URL};
 use northstar_core::limits::LOG_RING_SIZE;
 use northstar_core::now_ms;
 use northstar_core::parser::ServerEntry;
+use northstar_core::settings::Settings;
 use northstar_core::speed::{self, SpeedOptions};
 use northstar_core::store::{GroupsOptions, LatencyRecord};
 use northstar_core::APP_VERSION;
@@ -49,6 +50,21 @@ async fn dispatch(
                 let _ = app.emit("settings:changed", &settings);
                 if let Ok(mut logger) = state.logger.lock() {
                     logger.set_verbose(settings.verbose_logging);
+                }
+                // The system proxy follows its toggle immediately while
+                // connected; the other connection settings need a reconnect.
+                if payload.get("systemProxy").is_some() {
+                    let connected =
+                        state.connection.status(state.core_json()).await["state"] == "connected";
+                    if connected {
+                        if settings.system_proxy {
+                            apply_system_proxy(&app, state.inner(), &settings).await;
+                        } else {
+                            restore_system_proxy(&app, state.inner()).await;
+                        }
+                        let status = state.connection.status(state.core_json()).await;
+                        let _ = app.emit("connection:status", status);
+                    }
                 }
                 if payload.get("corePath").is_some() {
                     state.refresh_core(&app);
@@ -160,13 +176,6 @@ async fn dispatch(
             let id = text(&payload, "serverId").unwrap_or_default();
             let settings = state.settings.get();
 
-            if settings.system_proxy {
-                return json!({
-                    "ok": false,
-                    "error": "System proxy mode is not available in the Rust build yet. Turn it off in Settings, or use TUN mode.",
-                });
-            }
-
             let core = state
                 .core
                 .lock()
@@ -221,6 +230,11 @@ async fn dispatch(
             emit_latest_event(&app, &state.connection).await;
             match result {
                 Ok(()) => {
+                    if settings.system_proxy {
+                        apply_system_proxy(&app, state.inner(), &settings).await;
+                        let status = state.connection.status(state.core_json()).await;
+                        let _ = app.emit("connection:status", status);
+                    }
                     state.log(&app, "info", &format!("Connected to {}", entry.label));
                     json!({ "ok": true })
                 }
@@ -236,6 +250,9 @@ async fn dispatch(
         }
 
         "connection:disconnect" => {
+            // Restore Windows' proxy before stopping the core, so applications
+            // are never left pointing at a local port that no longer exists.
+            restore_system_proxy(&app, state.inner()).await;
             let core_json = state.core_json();
             let status_app = app.clone();
             state
@@ -540,6 +557,75 @@ async fn run_latency(app: &AppHandle, state: &AppState, payload: &Value) -> Valu
 
     let _ = app.emit("latency:state", json!({ "running": false }));
     json!({ "ok": true, "total": total, "results": results })
+}
+
+/// Applies the Windows per-user proxy after a successful connection. A failure
+/// is reported but never tears the tunnel down: the local proxy still works.
+async fn apply_system_proxy(app: &AppHandle, state: &AppState, settings: &Settings) {
+    if settings.tun_mode {
+        state.log(
+            app,
+            "warn",
+            "System proxy not applied: TUN mode already routes device traffic.",
+        );
+        return;
+    }
+    let result = {
+        state
+            .system_proxy
+            .lock()
+            .await
+            .apply(settings.http_port)
+            .await
+    };
+    match result {
+        Ok(proxy) => {
+            state.connection.mark_system_proxy(true, None).await;
+            state.log(
+                app,
+                "info",
+                &format!("System proxy set to {proxy} — restored on disconnect."),
+            );
+        }
+        Err(error) => {
+            state
+                .connection
+                .mark_system_proxy(false, Some(error.message.clone()))
+                .await;
+            state.log(
+                app,
+                "warn",
+                &format!("The system proxy could not be applied: {}", error.message),
+            );
+        }
+    }
+}
+
+/// Restores the proxy snapshot Northstar saved before applying it.
+async fn restore_system_proxy(app: &AppHandle, state: &AppState) {
+    let result = { state.system_proxy.lock().await.restore().await };
+    state.connection.mark_system_proxy(false, None).await;
+    match result {
+        Ok(restored) if restored.restored => {
+            state.log(
+                app,
+                "info",
+                "System proxy restored to its previous settings.",
+            );
+        }
+        Ok(restored) => {
+            if let Some(reason) = restored.reason {
+                if reason != "not-applied" {
+                    state.log(app, "warn", &reason);
+                }
+            }
+        }
+        Err(error) => state.log(
+            app,
+            "warn",
+            &format!("Could not restore the system proxy: {}", error.message),
+        ),
+    }
 }
 
 async fn emit_latest_event(app: &AppHandle, connection: &ConnectionManager) {

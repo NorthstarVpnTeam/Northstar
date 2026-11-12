@@ -11,6 +11,7 @@ use northstar_core::core_runtime::{locate, CoreInfo};
 use northstar_core::logger::Logger;
 use northstar_core::settings::{Settings, SettingsStore};
 use northstar_core::store::ServerStore;
+use northstar_core::system_proxy::SystemProxy;
 
 /// Everything the command layer needs, owned for the lifetime of the app.
 pub struct AppState {
@@ -23,6 +24,8 @@ pub struct AppState {
     pub speed_running: AtomicBool,
     pub speed_cancelled: Arc<AtomicBool>,
     pub cache_file: PathBuf,
+    /// Windows per-user proxy ownership (snapshot, apply, restore).
+    pub system_proxy: Mutex<SystemProxy>,
     /// Resolved by the renderer's `app:ready` call once every event listener
     /// is registered. The launch-time refresh waits on this, never a timer.
     pub ui_ready: Notify,
@@ -50,6 +53,7 @@ impl AppState {
         let _ = std::fs::create_dir_all(&data_dir);
         let settings = SettingsStore::load(&data_dir);
         let cache_file = data_dir.join("configs-cache.txt");
+        let system_proxy = SystemProxy::new(data_dir.join("network"));
 
         let mut store = ServerStore::new();
         if let Ok(text) = std::fs::read_to_string(&cache_file) {
@@ -72,6 +76,7 @@ impl AppState {
             speed_running: AtomicBool::new(false),
             speed_cancelled: Arc::new(AtomicBool::new(false)),
             cache_file,
+            system_proxy: Mutex::new(system_proxy),
             ui_ready: Notify::new(),
         };
         if let Some(path) = core_for_log.path {

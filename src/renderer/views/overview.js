@@ -132,7 +132,11 @@ export function renderOverview(container, ctx) {
                 ? [`Local proxy on 127.0.0.1:${conn.socksPort} (SOCKS) / ${conn.httpPort} (HTTP)`]
                     .concat(modeLabel(conn) || [])
                     .join(' · ')
-                : 'Local proxy mode — no system-wide routing is changed',
+                : settings.tunMode
+                  ? 'TUN mode on connect — requires administrator; Northstar never elevates itself'
+                  : settings.systemProxy
+                    ? `System proxy on connect: Windows apps → 127.0.0.1:${settings.httpPort || 10809}`
+                    : 'Local proxy mode — no system-wide routing is changed',
           }),
         ]),
       ]),

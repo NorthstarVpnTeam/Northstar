@@ -82,6 +82,8 @@ struct Inner {
     http_port: u16,
     mode: String,
     tun: bool,
+    system_proxy_active: bool,
+    system_proxy_error: Option<String>,
 }
 
 pub struct ConnectionManager {
@@ -124,6 +126,8 @@ impl ConnectionManager {
                 http_port: 10_809,
                 mode: "local-proxy".into(),
                 tun: false,
+                system_proxy_active: false,
+                system_proxy_error: None,
             }),
             child: Mutex::new(None),
             config_path: Mutex::new(None),
@@ -146,7 +150,7 @@ impl ConnectionManager {
             "throughput": { "down": null, "up": null, "available": false },
             "session": { "down": 0, "up": 0, "samples": [] },
             "mode": inner.mode,
-            "systemProxy": { "active": false },
+            "systemProxy": { "active": inner.system_proxy_active, "error": inner.system_proxy_error },
             "tun": { "active": inner.tun },
             "core": core,
         })
@@ -161,6 +165,14 @@ impl ConnectionManager {
         let mut inner = self.inner.lock().await;
         inner.events.insert(0, event);
         inner.events.truncate(EVENT_RING);
+    }
+
+    /// Records whether Northstar currently owns the Windows system proxy.
+    /// Applying/restoring it is the command layer's job, not the engine's.
+    pub async fn mark_system_proxy(&self, active: bool, error: Option<String>) {
+        let mut inner = self.inner.lock().await;
+        inner.system_proxy_active = active;
+        inner.system_proxy_error = error;
     }
 
     async fn set_error(&self, message: String) {
@@ -231,6 +243,8 @@ impl ConnectionManager {
             inner.http_port = options.http_port;
             inner.mode = if options.tun { "tun" } else { "local-proxy" }.into();
             inner.tun = options.tun;
+            inner.system_proxy_active = false;
+            inner.system_proxy_error = None;
         }
         self.push_event("info", format!("Connecting to {}", entry.label))
             .await;
@@ -417,6 +431,8 @@ impl ConnectionManager {
             inner.error = None;
             inner.validation = None;
             inner.tun = false;
+            inner.system_proxy_active = false;
+            inner.system_proxy_error = None;
         }
         self.push_event("info", "Disconnected").await;
         emit(self.status(core).await);

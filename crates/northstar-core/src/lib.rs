@@ -17,6 +17,7 @@ pub mod parser;
 pub mod settings;
 pub mod speed;
 pub mod store;
+pub mod system_proxy;
 
 pub const APP_NAME: &str = "Northstar V2Ray";
 pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
